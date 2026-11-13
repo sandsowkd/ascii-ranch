@@ -8,7 +8,7 @@ import type { Sheep, World } from '../simulation/World';
  * Math helpers and density ramp derive from stqfdyr/ascii-pond (MIT).
  * Copyright (c) 2026 stqfdyr; public/licenses/ascii-pond-MIT.txt. */
 
-const GLYPHS = " tSX" + ".,:;'`|/\\v!+*ox@O%#8-=~^<>()[]zZY_";
+const GLYPHS = " tSX" + ".,:;'`|/\\v!+*ox@O%#8-=~^<>()[]zZY_WFH";
 export const BG = '#1a1917';
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
@@ -124,10 +124,10 @@ export class Renderer {
     this.put(hx + dx * 14 * headScale, hy + dy * 14 * headScale, 'Y', 0.88, 2, 3);
 
   }
-  private stroke(x1: number, y1: number, x2: number, y2: number, level: number, family: number) {
+  private stroke(x1: number, y1: number, x2: number, y2: number, level: number, family: number, priority = 0) {
     const steps = Math.max(1, Math.ceil(Math.hypot(x2 - x1, y2 - y1) / (this.world.pasture.cellW * 0.7)));
     const glyph = lineGlyph(x2 - x1, y2 - y1);
-    for (let i = 0; i <= steps; i++) this.put(x1 + (x2 - x1) * i / steps, y1 + (y2 - y1) * i / steps, glyph, level, family);
+    for (let i = 0; i <= steps; i++) this.put(x1 + (x2 - x1) * i / steps, y1 + (y2 - y1) * i / steps, glyph, level, family, priority);
   }
   private dog() {
     const w = this.world, d = w.dog;
@@ -163,21 +163,29 @@ export class Renderer {
       const y = d.y - dy * (rx + t * 21 * scale) + sy * wag * t * t;
       this.stroke(tailX, tailY, x, y, 0.95, j === 5 ? 3 : 4); tailX = x; tailY = y;
     }
-    const hx = d.x + dx * (rx + 2), hy = d.y + dy * (rx + 2);
-    // A compact collie face: copper cheeks, a pale blaze and a short muzzle.
-    for (let r = Math.floor((hy - 11 * scale) / p.cellH); r <= Math.ceil((hy + 11 * scale) / p.cellH); r++) for (let c = Math.floor((hx - 11 * scale) / p.cellW); c <= Math.ceil((hx + 11 * scale) / p.cellW); c++) {
-      const x = (c + 0.5) * p.cellW, y = (r + 0.5) * p.cellH, ox = x - hx, oy = y - hy;
-      const along = ox * dx + oy * dy, side = ox * sx + oy * sy;
-      if ((along / (9 * scale)) ** 2 + (side / (7 * scale)) ** 2 > 1) continue;
-      const blaze = Math.abs(side) < 2.7 * scale;
-      this.put(x, y, blaze ? ':' : '%', blaze ? 0.75 : 0.85, blaze ? 2 : 4);
+    const hx = d.x + dx * (rx + 4 * scale), hy = d.y + dy * (rx + 4 * scale);
+    const face = (x: number, y: number) => {
+      const along = ((x - hx) * dx + (y - hy) * dy) / scale, side = ((x - hx) * sx + (y - hy) * sy) / scale;
+      return (along / 14) ** 2 + (side / (11 - Math.max(0, along) * 0.18)) ** 2;
+    };
+    for (let r = Math.floor((hy - 18 * scale) / p.cellH); r <= Math.ceil((hy + 18 * scale) / p.cellH); r++) for (let c = Math.floor((hx - 18 * scale) / p.cellW); c <= Math.ceil((hx + 18 * scale) / p.cellW); c++) {
+      const x = (c + 0.5) * p.cellW, y = (r + 0.5) * p.cellH;
+      if (face(x, y) > 1) continue;
+      const along = ((x - hx) * dx + (y - hy) * dy) / scale, side = ((x - hx) * sx + (y - hy) * sy) / scale;
+      const rim = face(x - p.cellW, y) > 1 || face(x + p.cellW, y) > 1 || face(x, y - p.cellH) > 1 || face(x, y + p.cellH) > 1;
+      const nx = face(x + p.cellW * 0.3, y) - face(x - p.cellW * 0.3, y), ny = face(x, y + p.cellH * 0.3) - face(x, y - p.cellH * 0.3);
+      const blaze = Math.abs(side) < 3.5 || along > 7;
+      this.put(x, y, rim ? lineGlyph(-ny, nx) : blaze ? ':' : '%', rim ? 1 : blaze ? 0.95 : 0.8, rim ? 3 : blaze ? 2 : 4, 3);
     }
     for (const side of [-1, 1]) {
-      this.stroke(hx - dx * 5 * scale + sx * side * 5 * scale, hy - dy * 5 * scale + sy * side * 5 * scale,
-        hx - dx * 9 * scale + sx * side * 9 * scale, hy - dy * 9 * scale + sy * side * 9 * scale, 0.65, 4);
-      this.put(hx - dx * scale + sx * side * 4 * scale, hy - dy * scale + sy * side * 4 * scale, 'o', 0.9, 3);
+      this.put(hx - dx * 9 * scale + sx * side * 13 * scale, hy - dy * 9 * scale + sy * side * 13 * scale, side < 0 ? '(' : ')', 0.9, 4, 3);
+      this.put(hx - dx * 2 * scale + sx * side * 6.5 * scale, hy - dy * 2 * scale + sy * side * 6.5 * scale, 'O', 1, 3, 4);
+      this.put(hx + dx * 10 * scale + sx * side * 3.5 * scale, hy + dy * 10 * scale + sy * side * 3.5 * scale, 'o', 0.9, 2, 3);
     }
-    this.put(hx + dx * 8 * scale, hy + dy * 8 * scale, 'x', 0.3, 7);
+    this.put(hx + dx * 13 * scale, hy + dy * 13 * scale, '@', 0.85, 8, 4);
+    const barking = (d.barkAge ?? 99) < 0.36;
+    this.put(hx + dx * 17 * scale, hy + dy * 17 * scale, barking ? 'O' : lineGlyph(sx, sy), barking ? 1 : 0.7, 3, 4);
+    if (barking) this.put(hx + dx * 20 * scale, hy + dy * 20 * scale, 'v', 0.95, 2, 3);
     // An unobtrusive copper selection mark makes the dog easy to pick out.
     this.put(d.x - 10, d.y - 25 * scale, '[', 0.5, 4);
     this.put(d.x + 10, d.y - 25 * scale, ']', 0.5, 4);
@@ -241,20 +249,35 @@ export class Renderer {
   }
   private pen() {
     const w = this.world, p = w.pasture, b = w.pen;
-    const left = Math.floor(b.left / p.cellW) * p.cellW + p.cellW / 2;
-    const right = Math.floor(b.right / p.cellW) * p.cellW + p.cellW / 2;
-    const top = Math.floor(b.top / p.cellH) * p.cellH + p.cellH / 2;
-    const bottom = Math.floor(b.bottom / p.cellH) * p.cellH + p.cellH / 2;
-    for (let x = left; x <= right; x += p.cellW) {
-      const post = Math.round((x - left) / p.cellW) % 4 === 0 || x === right;
-      this.put(x, top, post ? '+' : '-', 0.85, 7);
-      this.put(x, bottom, post ? '+' : '-', 0.85, 7);
+    for (const rail of w.fence.rails) {
+      if (Math.abs(rail.a.y - rail.b.y) < 1) {
+        const row = Math.floor(rail.a.y / p.cellH), inner = rail.a.y === b.top ? 1 : -1;
+        for (let c = Math.floor(Math.min(rail.a.x, rail.b.x) / p.cellW); c <= Math.floor(Math.max(rail.a.x, rail.b.x) / p.cellW); c++) for (const dr of [0, inner])
+          this.put((c + 0.5) * p.cellW, (row + dr + 0.5) * p.cellH, '=', 0.9, 7, 2);
+      } else {
+        const col = Math.floor(rail.a.x / p.cellW), inner = rail.a.x === b.left ? 1 : -1;
+        for (let r = Math.floor(Math.min(rail.a.y, rail.b.y) / p.cellH); r <= Math.floor(Math.max(rail.a.y, rail.b.y) / p.cellH); r++) for (const dc of [0, inner])
+          this.put((col + dc + 0.5) * p.cellW, (r + 0.5) * p.cellH, '|', 0.9, 7, 2);
+      }
     }
-    for (let y = top + p.cellH; y < bottom; y += p.cellH) {
-      this.put(right, y, '|', 0.85, 7);
-      // A small open gate faces into the pasture.
-      if (Math.abs(y - w.home.y) > p.cellH * 1.2) this.put(left, y, '|', 0.85, 7);
+    for (const post of w.fence.posts) {
+      const c = Math.floor(post.x / p.cellW), r = Math.floor(post.y / p.cellH);
+      for (const dy of [-1, 0]) for (const dx of [-1, 0, 1]) this.put((c + dx + 0.5) * p.cellW, (r + dy + 0.5) * p.cellH, dx === 0 ? '#' : dx < 0 ? '[' : ']', dx === 0 ? 0.95 : 0.75, 5, 3);
     }
+  }
+  private barkComic() {
+    const w = this.world, d = w.dog, age = d?.barkAge ?? 99;
+    if (!d || age > 0.72) return;
+    const scale = w.scale, p = w.pasture, dx = Math.cos(d.heading), dy = Math.sin(d.heading);
+    const pop = 0.85 + Math.min(1, age / 0.07) * 0.15, fade = Math.min(1, (0.72 - age) / 0.2);
+    const x = clamp(d.x + dx * 83 * scale, 40 * scale, w.width - 40 * scale), y = clamp(d.y + dy * 76 * scale - age * 13 * scale, 105, w.height - 155);
+    for (let j = 0; j < 16; j++) {
+      const a = j * Math.PI / 8, long = j % 2 === 0;
+      this.put(x + Math.cos(a) * (long ? 35 : 29) * scale * pop, y + Math.sin(a) * (long ? 23 : 16) * scale * pop, lineGlyph(Math.cos(a), Math.sin(a)), 0.9 * fade, 5, 6);
+    }
+    const cx = (Math.floor(x / p.cellW) + 0.5) * p.cellW, cy = (Math.floor(y / p.cellH) + 0.5) * p.cellH;
+    for (let i = 0; i < 5; i++) this.put(cx + (i - 2) * p.cellW, cy, 'WOOF!'[i], fade, 3, 7);
+    this.put(d.x + dx * 54 * scale, d.y + dy * 54 * scale, '!', 0.85 * fade, 5, 6);
   }
   private sleep() {
     const w = this.world, d = w.dog; if (!d?.sleeping) return;
@@ -305,6 +328,7 @@ export class Renderer {
     // Faces and ears always survive another animal's wool.
     for (const s of animals) this.sheep(s, true);
     this.sleep();
+    this.barkComic();
     for (const b of w.birds) if (b.state !== 'landed') this.bird(b);
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); ctx.fillStyle = BG; if (this.repaintAll) ctx.fillRect(0, 0, w.width, w.height); ctx.imageSmoothingEnabled = false;
     for (let i = 0; i < this.codes.length; i++) {

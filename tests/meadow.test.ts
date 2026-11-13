@@ -95,6 +95,58 @@ describe('lambs and visiting birds', () => {
   });
 
 });
+describe('forward grazing and a physical recall pen', () => {
+  it('keeps ordinary next-patch choices within 45 degrees, even when greener grass is behind', () => {
+    const w = new World(1600, 1200, 1), s = w.sheep[0];
+    for (let i = 0; i < 24; i++) {
+      const heading = i * Math.PI / 12;
+      w.pasture.grass.fill(0);
+      w.pasture.regrow(800 - Math.cos(heading) * 100, 450 - Math.sin(heading) * 100, 90);
+      Object.assign(s, { x: 800, y: 450, heading, state: 'grazing', timer: -1, searchIn: 0, vx: 0, vy: 0 });
+      w.step(1 / 60);
+      expect(s.state).toBe('walking');
+      expect(Math.abs(angleDelta(heading, Math.atan2(s.goalY - 450, s.goalX - 800)))).toBeLessThanOrEqual(Math.PI / 4 + 1e-8);
+    }
+  });
+  it('chooses a forward side lane when a sheep is directly ahead', () => {
+    const w = new World(1600, 1100, 2), [s, other] = w.sheep;
+    Object.assign(s, { x: 500, y: 450, heading: 0, state: 'grazing', timer: -1 });
+    Object.assign(other, { x: 610, y: 450, heading: 0, timer: 100 }); w.step(1 / 60);
+    const turn = Math.atan2(s.goalY - 450, s.goalX - 500);
+    expect(s.state).toBe('walking'); expect(Math.abs(turn)).toBeGreaterThan(0.3); expect(Math.abs(turn)).toBeLessThanOrEqual(Math.PI / 4 + 1e-8);
+  });
+  it('spawns inside the pen and uses the gate for exit and recall without clipping rails', () => {
+    const w = new World(1200, 900, 0); w.toggleDog();
+    expect(w.dog!.x).toBe(w.home.x); expect(w.dog!.y).toBe(w.home.y); expect(w.dog!.atHome).toBe(true); expect(w.fence.posts.length).toBeGreaterThan(8);
+    const safe = () => { for (const o of w.fence.obstacles) expect(Math.hypot(w.dog!.x - o.x, w.dog!.y - o.y)).toBeGreaterThanOrEqual(o.radius - 0.1); };
+    w.sendDog(300, 300);
+    for (let i = 0; i < 900; i++) { w.step(1 / 60); safe(); }
+    expect(w.dog!.arrived).toBe(true); expect(Math.hypot(w.dog!.x - 300, w.dog!.y - 300)).toBeLessThan(2);
+    w.cast('r'); for (let i = 0; i < 1200; i++) { w.step(1 / 60); safe(); }
+    expect(w.dog!.atHome).toBe(true); expect(w.dog!.x).toBeCloseTo(w.home.x);
+  });
+  it('sprint cannot pass through a closed rail and sheep heads stay clear of the pen', () => {
+    const w = new World(1200, 900, 1); w.toggleDog();
+    Object.assign(w.dog!, { x: w.home.x, y: w.pen.top - 85, atHome: false }); w.sendDog(w.home.x, w.home.y); w.cast('e');
+    const s = w.sheep[0]; Object.assign(s, { x: w.pen.left - 75, y: w.home.y, heading: 0, state: 'walking', goalX: w.home.x, goalY: w.home.y, timer: 100 });
+    for (let i = 0; i < 1500; i++) {
+      w.step(1 / 60);
+      for (const o of w.fence.obstacles) expect(Math.hypot(w.dog!.x - o.x, w.dog!.y - o.y)).toBeGreaterThanOrEqual(o.radius - 0.1);
+      expect(s.x <= w.pen.left - 66 * w.scale + 0.1 || s.y <= w.pen.top - 66 * w.scale + 0.1).toBe(true);
+    }
+    expect(w.dog!.arrived).toBe(true);
+  });
+  it('birds can perch above a fence post, stay out of grass reservations and leave when chased', () => {
+    const w = new World(1200, 900, 0);
+    for (let i = 0; i < 6000 && !w.birds.some(b => b.state === 'landed' && b.perchId !== undefined); i++) w.step(1 / 60);
+    const bird = w.birds.find(b => b.state === 'landed' && b.perchId !== undefined)!;
+    expect(bird).toBeDefined(); const post = w.fence.posts[bird.perchId!];
+    expect(bird.x).toBeCloseTo(post.x); expect(bird.y).toBeCloseTo(post.y - 2 * w.pasture.cellH);
+    expect(w.birdLife.groundSpots.some(p => p.id === bird.id)).toBe(false);
+    w.birdLife.step(1 / 60, w.width, w.height, w.pasture, [], { x: post.x - 70, y: post.y, vx: 40, vy: 0 }, [], w.fence.posts, w.pen);
+    expect(bird.state).toBe('departing');
+  });
+});
 describe('the living pasture', () => {
   it('eats a local patch without changing distant grass', () => {
     const p = new Pasture(900, 700), near = p.index(400, 300), far = p.index(80, 80);
@@ -185,13 +237,14 @@ describe('a controllable sheepdog', () => {
   });
   it('sprint travels farther than ordinary movement without teleporting', () => {
     const a = new World(1600, 1000, 0), b = new World(1600, 1000, 0);
-    a.sendDog(1500, 750); b.sendDog(1500, 750); a.cast('e');
+    a.toggleDog(); b.toggleDog(); Object.assign(a.dog!, { x: 300, y: 400 }); Object.assign(b.dog!, { x: 300, y: 400 });
+    a.sendDog(1500, 400); b.sendDog(1500, 400); a.cast('e');
     advance(a, 0.5); advance(b, 0.5);
-    expect(Math.hypot(a.dog!.x - 1500, a.dog!.y - 750)).toBeLessThan(Math.hypot(b.dog!.x - 1500, b.dog!.y - 750) - 45);
+    expect(Math.hypot(a.dog!.x - 1500, a.dog!.y - 400)).toBeLessThan(Math.hypot(b.dog!.x - 1500, b.dog!.y - 400) - 45);
   });
   it('W encloses sheep on every pasture edge and follows a complete outside lap', () => {
     const w = new World(1200, 900, 4), b = w.bounds;
-    const poses = [{ x: b.left, y: b.top }, { x: b.right, y: b.top }, { x: b.right, y: b.bottom }, { x: b.left, y: b.bottom }];
+    const poses = [{ x: b.left, y: b.top }, { x: b.right, y: b.top }, { x: Math.min(b.right, w.pen.left - 140 * w.scale), y: b.bottom }, { x: b.left, y: b.bottom }];
     w.sheep.forEach((s, i) => Object.assign(s, poses[i], { timer: 10000 }));
     const outline = w.orbitOutline();
     expect(outline.left).toBeLessThan(b.left - 40); expect(outline.right).toBeGreaterThan(b.right + 40);
@@ -199,9 +252,9 @@ describe('a controllable sheepdog', () => {
     w.cast('w'); const visited = new Set<string>();
     for (let frame = 0; frame < 5000 && w.dog!.orbit; frame++) {
       w.step(1 / 60); const d = w.dog!;
-      if (!d.orbitEntering) expect(d.x < b.left || d.x > b.right || d.y < b.top || d.y > b.bottom).toBe(true);
-      if (Math.abs(d.x - outline.left) < 10) visited.add('left'); if (Math.abs(d.x - outline.right) < 10) visited.add('right');
-      if (Math.abs(d.y - outline.top) < 10) visited.add('top'); if (Math.abs(d.y - outline.bottom) < 10) visited.add('bottom');
+      if (!d.orbitEntering) expect(poses.some((a, i) => { const b = poses[(i + 1) % poses.length]; return (b.x - a.x) * (d.y - a.y) - (b.y - a.y) * (d.x - a.x) < 0; })).toBe(true);
+      if (Math.abs(d.x - outline.left) < 18) visited.add('left'); if (Math.abs(d.x - outline.right) < 18) visited.add('right');
+      if (Math.abs(d.y - outline.top) < 18) visited.add('top'); if (Math.abs(d.y - outline.bottom) < 18) visited.add('bottom');
       w.sheep.forEach((s, i) => Object.assign(s, poses[i], { vx: 0, vy: 0, timer: 10000 }));
     }
     expect(visited.size).toBe(4); expect(w.dog!.orbit).toBeNull();

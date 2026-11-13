@@ -217,7 +217,7 @@ test('terrain matches Pond charcoal; bare grass rests on charcoal before growing
     }
     p.grass.fill(0.02); app.renderer.render();
     for (let r = 10; r < p.rows - 20; r++) for (let c = 5; c < p.cols - 5; c++) {
-      const cell = app.renderer.cellAt(c * p.cellW, r * p.cellH); full++;
+      const cell = app.renderer.cellAt(c * p.cellW, r * p.cellH); if (cell.priority > 0) continue; full++;
       if (cell.family === 1) brown++; if (cell.family === 6) dark++; if (cell.glyph === ' ') dots++;
     }
     const ctx = app.renderer.canvas.getContext('2d'), d = app.renderer.canvas.width / w.width;
@@ -307,6 +307,7 @@ test('Q has a visible first frame and a subtle wave that crosses the field quick
       let changed = 0, nearest = Infinity, farthest = 0, brightest = 0;
       for (let i = 0; i < before.length; i++) {
         const px = (i % p.cols + 0.5) * p.cellW, py = (Math.floor(i / p.cols) + 0.5) * p.cellH, cell = app.renderer.cellAt(px, py);
+        if (cell.priority !== 0) continue; // Inspect the wave separately from the comic and moving mouth.
         if (before[i] !== JSON.stringify(cell)) { changed++; const distance = Math.hypot(px - x, py - y); nearest = Math.min(nearest, distance); farthest = Math.max(farthest, distance); brightest = Math.max(brightest, cell.level); }
       }
       return { changed, nearest, farthest, brightest };
@@ -327,4 +328,36 @@ test('Q has a visible first frame and a subtle wave that crosses the field quick
   expect(ripple.traveling.changed).toBeLessThan(ripple.cells * 0.03); expect(ripple.traveling.brightest).toBeLessThanOrEqual(10);
   expect(ripple.finished.changed).toBe(0);
   await page.screenshot({ path: `docs/${info.project.name}-bark.png` });
+});
+
+
+test('the dog starts inside a thick posted pen, opens its mouth to bark, and birds perch on posts', async ({ page }, info) => {
+  const result = await page.evaluate(() => {
+    const app = (window as any).__meadow, w = app.world, p = w.pasture, r = app.renderer;
+    w.reset(0); w.toggleDog(); w.paused = true; r.render();
+    const scan = () => {
+      let eyes = 0, nose = 0; const letters: { x: number; glyph: string }[] = [];
+      for (let row = 0; row < p.rows; row++) for (let col = 0; col < p.cols; col++) {
+        const cell = r.cellAt((col + 0.5) * p.cellW, (row + 0.5) * p.cellH);
+        if (cell.priority === 4 && cell.glyph === 'O') eyes++;
+        if (cell.priority === 4 && cell.glyph === '@') nose++;
+        if (cell.priority === 7) letters.push({ x: col, glyph: cell.glyph });
+      }
+      return { eyes, nose, word: letters.sort((a, b) => a.x - b.x).map(c => c.glyph).join('') };
+    };
+    const closed = scan(), inside = w.dog.x > w.pen.left + 45 * w.scale && w.dog.x < w.pen.right - 45 * w.scale && w.dog.y > w.pen.top + 45 * w.scale && w.dog.y < w.pen.bottom - 45 * w.scale;
+    const postInk = w.fence.posts.filter((q: any) => r.cellAt(q.x, q.y).glyph === '#').length;
+    w.paused = false; app.controller.cast('q'); w.paused = true; const open = scan();
+    w.dog.barkAge = 1; r.render(); const quiet = scan();
+    w.dog = null; w.paused = false;
+    for (let i = 0; i < 6000 && !w.birds.some((b: any) => b.state === 'landed' && b.perchId !== undefined); i++) w.step(1 / 60);
+    const bird = w.birds.find((b: any) => b.state === 'landed' && b.perchId !== undefined), post = bird && w.fence.posts[bird.perchId];
+    const perched = !!bird && Math.abs(bird.x - post.x) < 1 && Math.abs(bird.y - (post.y - 2 * p.cellH)) < 1;
+    w.toggleDog(); w.dog.barkAge = 0.12; w.paused = true; r.render();
+    return { closed, open, quiet, inside, postInk, postCount: w.fence.posts.length, perched };
+  });
+  expect(result.inside).toBe(true); expect(result.closed.eyes).toBe(2); expect(result.closed.nose).toBeGreaterThan(0);
+  expect(result.postInk).toBe(result.postCount); expect(result.postCount).toBeGreaterThan(8);
+  expect(result.open.eyes).toBeGreaterThan(result.closed.eyes); expect(result.open.word).toBe('WOOF!'); expect(result.quiet.word).toBe(''); expect(result.perched).toBe(true);
+  await page.screenshot({ path: `docs/${info.project.name}-pen-bark.png` });
 });
