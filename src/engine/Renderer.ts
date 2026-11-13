@@ -2,6 +2,7 @@ import { clamp, hash3, lineGlyph } from '../vendor/pond-math';
 import { DENSITY_GLYPHS, grassAppearance } from './grass';
 import type { Bird } from '../simulation/Birds';
 import type { Mouse } from '../simulation/Mice';
+import { hawkPose, hawkWingAt } from './raptor';
 import { gateLeaf } from '../simulation/fence';
 import { BARK_TRAVEL_TIME, BARK_FADE_TIME, BARK_LIFETIME, barkRadius, type Bark } from '../simulation/bark';
 import type { Sheep, World } from '../simulation/World';
@@ -241,33 +242,46 @@ export class Renderer {
     dot(-12, 0, '~', 0.7); dot(-17, 0, '-', 0.5);
   }
   private mouse(m: Mouse) {
-    const scale = this.world.scale, dx = Math.cos(m.heading), dy = Math.sin(m.heading), sx = -dy, sy = dx;
+    const w = this.world, p = w.pasture, scale = w.scale, dx = Math.cos(m.heading), dy = Math.sin(m.heading), sx = -dy, sy = dx;
     const dot = (along: number, side: number, glyph: string, family: number, level: number) => this.put(m.x + (dx * along + sx * side) * scale, m.y + (dy * along + sy * side) * scale, glyph, level, family);
-    const wiggle = Math.sin(this.world.time * 15 + m.phase) * (m.state === 'darting' ? 2.5 : 0.6);
-    // Three warm pink tail cells, two round ears and a pointed little nose.
-    dot(-18, wiggle + 2, '~', 12, 0.95); dot(-13, wiggle, '~', 12, 1); dot(-8, 0, '-', 12, 0.95);
-    dot(-3, 0, '%', 2, 0.48); dot(2, 0, '@', 2, 0.65);
-    dot(2, -4, 'o', 2, 0.74); dot(2, 4, 'o', 2, 0.74); dot(7, 0, '.', 3, 0.95);
+    const wiggle = Math.sin(w.time * 13 + m.phase) * (m.state === 'darting' ? 1.8 : 0.4);
+    // A short pink tail joins a rounded body; the face has its own closed rim.
+    dot(-22, wiggle + 1, '~', 12, 0.9); dot(-17, 0, '~', 12, 0.95);
+    for (let row = Math.floor((m.y - 22 * scale) / p.cellH); row <= Math.ceil((m.y + 22 * scale) / p.cellH); row++) for (let col = Math.floor((m.x - 22 * scale) / p.cellW); col <= Math.ceil((m.x + 22 * scale) / p.cellW); col++) {
+      const x = (col + 0.5) * p.cellW, y = (row + 0.5) * p.cellH, ox = (x - m.x) / scale, oy = (y - m.y) / scale;
+      const along = ox * dx + oy * dy, side = ox * sx + oy * sy;
+      const body = ((along + 5) / 10) ** 2 + (side / 7.5) ** 2;
+      const head = ((along - 7) / 9) ** 2 + (side / 6.5) ** 2;
+      if (body <= 1) this.put(x, y, body > 0.65 ? ':' : '%', 0.65, 2);
+      if (head <= 1) this.put(x, y, head > 0.55 ? lineGlyph(-side, along - 7) : ':', head > 0.55 ? 0.95 : 0.65, 2);
+    }
+    for (const side of [-1, 1]) {
+      dot(14, side * 8, side < 0 ? '/' : '\\', 2, 0.8);
+      dot(-7, side * 8, '.', 2, 0.7);
+    }
+    for (const side of [-1, 1]) { dot(1, side * 11, 'O', 3, 0.95); dot(10, side * 5, 'o', 3, 1); }
+    dot(17, 0, '.', 12, 1);
   }
   private hawk(b: Bird) {
     const w = this.world, p = w.pasture, scale = w.scale, x = b.x, y = b.y - b.altitude * 28 * scale;
-    const dx = Math.cos(b.heading), dy = Math.sin(b.heading), sx = -dy, sy = dx;
-    const flap = Math.sin(w.time * 5.5 + b.phase), span = (b.state === 'swooping' ? 42 : 57 + flap * 7) * scale, radius = 77 * scale;
+    const dx = Math.cos(b.heading), dy = Math.sin(b.heading), sx = -dy, sy = dx, pose = hawkPose(w.time, b);
+    const bank = b.state === 'circling' ? (b.hunt?.direction ?? 1) * 0.7 : 0, radius = 57 * scale;
     for (let row = Math.floor((y - radius) / p.cellH); row <= Math.ceil((y + radius) / p.cellH); row++) for (let col = Math.floor((x - radius) / p.cellW); col <= Math.ceil((x + radius) / p.cellW); col++) {
-      const px = (col + 0.5) * p.cellW, py = (row + 0.5) * p.cellH, ox = px - x, oy = py - y;
-      const along = (ox * dx + oy * dy) / scale, side = Math.abs(ox * sx + oy * sy), t = side / span;
-      const center = -5 - t * 12 + flap * t * 3, halfWidth = 13 * (1 - t) + 3;
-      if (side < 4 * scale || t > 1 || Math.abs(along - center) > halfWidth) continue;
-      const feathers = t > 0.72, glyph = feathers ? lineGlyph(dx - sx * Math.sign(ox * sx + oy * sy), dy - sy * Math.sign(ox * sx + oy * sy)) : t < 0.4 ? '#' : '%';
-      this.put(px, py, glyph, feathers ? 0.9 : 0.8, feathers ? 7 : 4, 5);
+      const px = (col + 0.5) * p.cellW, py = (row + 0.5) * p.cellH, ox = (px - x) / scale, oy = (py - y) / scale;
+      const along = ox * dx + oy * dy, side = ox * sx + oy * sy, wing = hawkWingAt(along, side, pose, bank);
+      if (!wing) continue;
+      this.put(px, py, wing.feather ? lineGlyph(dx - sx * Math.sign(side) * 0.3, dy - sy * Math.sign(side) * 0.3) : wing.covert ? '%' : '=', wing.feather ? 0.96 : 0.85, wing.covert ? 4 : 7, 5);
     }
     const dot = (along: number, side: number, glyph: string, ink = 4, level = 0.95) => this.put(x + (dx * along + sx * side) * scale, y + (dy * along + sy * side) * scale, glyph, level, ink, 5);
-    for (let along = -16; along <= 12; along += 5) for (const side of [-4, 0, 4]) dot(along, side, along < -10 ? ':' : '#', 7, 0.95);
-    for (const side of [-7, 0, 7]) dot(-23, side, lineGlyph(dx, dy), 4);
-    dot(16, 0, '@', 3); dot(18, -5, 'O', 3); dot(18, 5, 'O', 3);
-    dot(26, 0, dx < 0 ? '<' : '>', 11);
-    if (b.altitude < 0.7 || b.caughtMouse) { dot(2, -9, 'v', 11); dot(2, 9, 'v', 11); }
-    if (b.caughtMouse) { dot(-1, 11, 'o', 2, 0.7); dot(-7, 13, '~', 12); }
+    // A compact body and fanned russet tail anchor the articulated wings.
+    for (let along = -13; along <= 10; along += 4) for (const side of [-3, 0, 3]) dot(along, side, '%', 7, 0.96);
+    for (const side of [-1, 0, 1]) for (const along of [-17, -22]) dot(along, side * (along === -22 ? 7 : 4), side < 0 ? '/' : side > 0 ? '\\' : '|', 7);
+    dot(12, 0, '@', 2); dot(14, -4, 'o', 3); dot(14, 4, 'o', 3); dot(21, 0, dx < 0 ? '<' : '>', 11);
+    const feetOut = b.state === 'striking' || b.state === 'swooping' && b.altitude < 0.55 || b.caughtMouse;
+    if (feetOut) {
+      for (const side of [-1, 1]) { dot(7, side * 6, '/', 11); dot(13, side * 7, 'v', 11); }
+    }
+    if (b.caughtMouse) { dot(10, 8, 'o', 2, 0.75); dot(4, 10, '~', 12); }
   }
   private ring(x: number, y: number, radius: number, strength: number, family: number) {
     const p = this.world.pasture, band = p.cellW * 1.15;

@@ -3,11 +3,13 @@ import type { Pasture } from './Pasture';
 import type { FenceRect, FieldFences } from './fence';
 import { mouseExposed, type MouseLife } from './Mice';
 import { barkTouches, type Bark } from './bark';
+import { stepHawk, type HawkHunt } from './Hawks';
 
 export interface Bird {
   id: number; perchId?: number; x: number; y: number; heading: number; phase: number;
   kind?: 'songbird' | 'hawk'; targetMouseId?: number; catchRoll?: number; caughtMouse?: boolean;
-  state: 'arriving' | 'landed' | 'departing' | 'soaring' | 'swooping'; age: number; altitude: number;
+  hunt?: HawkHunt;
+  state: 'arriving' | 'landed' | 'departing' | 'soaring' | 'circling' | 'swooping' | 'striking'; age: number; altitude: number;
   landingX: number; landingY: number; exitX: number; exitY: number; restFor: number; color: number;
 }
 interface Position { x: number; y: number; size?: number; heading?: number; vx?: number; vy?: number }
@@ -71,23 +73,6 @@ export class BirdLife {
     const headX = a.x + Math.cos(a.heading) * 34.3 * size * scale, headY = a.y + Math.sin(a.heading) * 34.3 * size * scale;
     return Math.hypot(headX - b.x, headY - b.y) < (11.2 * size + 16) * scale;
   }
-  private stepHawk(b: Bird, dt: number, width: number, height: number, pasture: Pasture, animals: Position[], mice?: MouseLife) {
-    const scale = width < 600 ? 0.79 : 1;
-    const mouse = mice?.mice.find(m => m.id === b.targetMouseId);
-    if (b.state !== 'departing' && b.targetMouseId !== undefined && (!mouse || !mouseExposed(mouse, animals, scale))) { b.state = 'departing'; b.age = 0; b.targetMouseId = undefined; }
-    const hunting = mouse && b.state !== 'departing', tx = hunting ? mouse.x : b.exitX, ty = hunting ? mouse.y : b.exitY;
-    const dx = tx - b.x, dy = ty - b.y, distance = Math.hypot(dx, dy);
-    if (hunting && b.state === 'soaring' && distance < 230 * scale) { b.state = 'swooping'; b.age = 0; }
-    const diving = b.state === 'swooping', speed = (diving ? 235 : 140) * scale, travel = Math.min(distance, speed * dt);
-    b.heading = Math.atan2(dy, dx); b.x += dx / (distance || 1) * travel; b.y += dy / (distance || 1) * travel;
-    b.altitude = diving ? Math.max(0.04, Math.min(1.7, distance / (145 * scale))) : b.state === 'departing' ? Math.min(1.7, b.altitude + dt * 2.3) : 1.7;
-    if (diving && mouse && distance <= travel + 11 * scale) {
-      if (mouseExposed(mouse, animals, scale) && (b.catchRoll ?? hash3(b.id, 8, 781)) < 0.5) b.caughtMouse = mice!.catch(mouse.id);
-      else mice!.flee(mouse, b, width, height, pasture);
-      b.state = 'departing'; b.age = 0; b.targetMouseId = undefined;
-    }
-    if (b.age > 30 && b.state !== 'departing') { b.state = 'departing'; b.age = 0; }
-  }
   step(dt: number, width: number, height: number, pasture: Pasture, animals: Position[], dog: Position | null, barks: Bark[], posts: Position[] = [], fence?: FenceRect, mice?: MouseLife, fieldFences?: FieldFences) {
     const scale = width < 600 ? 0.79 : 1;
     this.untilVisit -= dt;
@@ -107,7 +92,7 @@ export class BirdLife {
     }
     for (const b of this.birds) {
       b.age += dt;
-      if (b.kind === 'hawk') { this.stepHawk(b, dt, width, height, pasture, animals, mice); continue; }
+      if (b.kind === 'hawk') { stepHawk(b, dt, width, height, pasture, animals, mice); continue; }
       if (b.state === 'arriving') {
         if (!(b.perchId !== undefined ? this.clearPerch(b.perchId, posts, dog, scale, b) : this.clearLanding(b.landingX, b.landingY, scale, pasture, animals, dog, b, fence, fieldFences))) {
           const landing = this.pickLanding(width, height, pasture, animals, dog, b, posts, fence, fieldFences);

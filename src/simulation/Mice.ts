@@ -38,12 +38,12 @@ export class MouseLife {
   step(dt: number, width: number, height: number, pasture: Pasture, dog: { x: number; y: number } | null) {
     const scale = width < 600 ? 0.79 : 1;
     this.untilVisit -= dt;
-    if (this.untilVisit <= 0 && this.mice.length < 5) {
+    if (this.untilVisit <= 0 && this.mice.length < 2) {
       const id = this.nextId++, h = (n: number) => hash3(id, n, 962);
       const x = width * (0.12 + h(0) * 0.76), y = 125 + h(1) * Math.max(20, height - 280);
       const mouse: Mouse = { id, x, y, vx: 0, vy: 0, heading: h(2) * TAU, phase: h(3) * TAU,
-        goalX: x, goalY: y, timer: 0, age: 0, life: 50 + h(4) * 25, state: 'resting' };
-      this.mice.push(mouse); this.destination(mouse, width, height, pasture); this.untilVisit = 10 + h(5) * 9;
+        goalX: x, goalY: y, timer: 0, age: 0, life: 34 + h(4) * 12, state: 'resting' };
+      this.mice.push(mouse); this.destination(mouse, width, height, pasture); this.untilVisit = 26 + h(5) * 14;
     }
     for (const m of this.mice) {
       m.age += dt; m.timer -= dt;

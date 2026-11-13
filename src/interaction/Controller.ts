@@ -27,13 +27,13 @@ export class Controller {
     document.querySelector('#remove-lamb')!.addEventListener('click', () => { world.removeLamb(); this.persist(); this.sync(); renderer.render(); }, opts);
     document.querySelector('#regrow-button')!.addEventListener('click', () => { world.pasture.regrowAll(); renderer.render(); this.toast('all grass restored.'); }, opts);
     document.querySelector('#pause')!.addEventListener('click', () => this.setPaused(!world.paused), opts);
-    document.querySelector('#reset')!.addEventListener('click', () => { this.cancel(); world.reset(); world.toggleDog(); this.sync(); renderer.render(); this.toast('a fresh patch of green.'); }, opts);
+    document.querySelector('#reset')!.addEventListener('click', () => { this.fenceMode = false; this.cancel(); world.reset(); world.toggleDog(); this.sync(); renderer.render(); this.toast('a fresh patch of green.'); }, opts);
     this.settingsButton.addEventListener('click', () => this.setSettingsOpen(this.settings.hidden), opts);
     window.addEventListener('keydown', e => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.altKey || e.ctrlKey || e.metaKey || e.repeat) return;
       if (e.code === 'Space' && e.target instanceof HTMLButtonElement) return;
       const key = e.key.toLowerCase();
-      if (key === 'f') { e.preventDefault(); if (!this.settings.hidden) this.setSettingsOpen(false); this.regrowMode = false; this.fenceMode = true; this.sync(); }
+      if (key === 'f') { e.preventDefault(); if (!this.settings.hidden) this.setSettingsOpen(false); this.cancel(); this.regrowMode = false; this.fenceMode = !this.fenceMode; this.sync(); renderer.render(); }
       if (e.key === 'Backspace' && this.settings.hidden) { e.preventDefault(); this.cancel(); world.undoFence(); renderer.render(); }
       if (['q', 'w', 'e', 'r'].includes(key)) { e.preventDefault(); this.cast(key as Ability); }
       if (e.code === 'Space') { e.preventDefault(); this.toggleRegrow(); }
@@ -41,7 +41,6 @@ export class Controller {
       if (key === 'h') this.setSettingsOpen(this.settings.hidden);
       if (e.key === 'Escape') { this.fenceMode = false; this.regrowMode = false; this.cancel(); this.sync(); renderer.render(); if (!this.settings.hidden) this.setSettingsOpen(false); }
     }, opts);
-    window.addEventListener('keyup', e => { if (e.key.toLowerCase() === 'f') { this.fenceMode = false; this.sync(); } }, opts);
     this.sync();
   }
   private setSettingsOpen(open: boolean) {
@@ -78,7 +77,8 @@ export class Controller {
     if (this.world.fencePreview) {
       const rail = this.world.fenceEndpoints({ x: this.startX, y: this.startY }, p);
       const added = this.world.addFence(rail.a, rail.b);
-      this.cancel(); this.renderer.render(); this.toast(added ? 'fence placed. backspace to undo.' : 'leave a little room around the animals and pen.');
+      if (added) this.fenceMode = false;
+      this.cancel(); this.sync(); this.renderer.render(); this.toast(added ? 'fence placed. backspace to undo.' : 'leave a little room around the animals and pen.');
       if (this.canvas.hasPointerCapture(e.pointerId)) this.canvas.releasePointerCapture(e.pointerId);
       return;
     }

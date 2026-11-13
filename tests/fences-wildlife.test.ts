@@ -5,10 +5,11 @@ import { MouseLife, mouseExposed, type Mouse } from '../src/simulation/Mice';
 import { BirdLife, type Bird } from '../src/simulation/Birds';
 import { Pasture } from '../src/simulation/Pasture';
 import { hash3 } from '../src/vendor/pond-math';
+import { hawkPose, hawkWingAt } from '../src/engine/raptor';
 
 const advance = (w: World, seconds: number) => { for (let i = 0; i < seconds * 60; i++) w.step(1 / 60); };
 const mouse = (id = 0): Mouse => ({ id, x: 600, y: 450, vx: 0, vy: 0, heading: 0, goalX: 600, goalY: 450, timer: 100, age: 0, life: 100, phase: 0, state: 'resting' });
-const hawk = (roll: number): Bird => ({ id: 2, kind: 'hawk', x: 580, y: 450, heading: 0, phase: 0, state: 'swooping', age: 0, altitude: 0.1,
+const hawk = (roll: number): Bird => ({ id: 2, kind: 'hawk', x: 588, y: 450, heading: 0, phase: 0, state: 'striking', age: 0, altitude: 0,
   landingX: 600, landingY: 450, exitX: 1300, exitY: 200, restFor: 0, color: 2, targetMouseId: 0, catchRoll: roll });
 
 describe('drawn fences', () => {
@@ -86,11 +87,44 @@ describe('mice and hawks', () => {
     for (const b of seen.values()) { expect(b.kind === 'hawk').toBe(b.id % 3 === 2); if (b.kind === 'hawk') { expect(b.caughtMouse).not.toBe(true); expect(b.targetMouseId).toBeUndefined(); } }
     expect([...seen.values()].some(b => b.kind === 'songbird')).toBe(true);
   });
+  it('keeps mice sparse, with at most two and long gaps between appearances', () => {
+    const life = new MouseLife(), p = new Pasture(1200, 900), seen = new Set<number>(), births: number[] = []; let total = 0;
+    for (let i = 0; i < 300 * 30; i++) {
+      life.step(1 / 30, 1200, 900, p, null); expect(life.mice.length).toBeLessThanOrEqual(2); total += life.mice.length;
+      for (const m of life.mice) if (!seen.has(m.id)) { seen.add(m.id); births.push(i / 30); }
+    }
+    expect(births.length).toBeGreaterThan(6); expect(total / (300 * 30)).toBeLessThan(1.5);
+    for (let i = 1; i < births.length; i++) expect(births[i] - births[i - 1]).toBeGreaterThanOrEqual(25.9);
+  });
+  it('makes a complete banked loop before a curved dive and a brief feet-first catch', () => {
+    const life = new BirdLife(), mice = new MouseLife(), p = new Pasture(1200, 900), b = hawk(0.1);
+    Object.assign(b, { x: 200, y: 400, state: 'soaring', altitude: 1.8 }); life.birds.push(b); mice.mice.push(mouse());
+    const states = new Set<string>(); let movement = 0, circleSweep = 0;
+    for (let i = 0; i < 30 * 60 && !b.caughtMouse; i++) {
+      const before = { x: b.x, y: b.y, heading: b.heading }; states.add(b.state);
+      life.step(1 / 60, 1200, 900, p, [], null, [], [], undefined, mice);
+      const d = Math.hypot(b.x - before.x, b.y - before.y); movement += d; expect(d).toBeLessThan(6);
+      expect(Math.abs(Math.atan2(Math.sin(b.heading - before.heading), Math.cos(b.heading - before.heading)))).toBeLessThan(0.06);
+      circleSweep = Math.max(circleSweep, b.hunt?.sweep ?? 0);
+      if (b.state === 'striking' && b.age < 0.2) expect(mice.mice).toHaveLength(1);
+    }
+    expect([...states]).toEqual(['soaring', 'circling', 'swooping', 'striking']); expect(circleSweep).toBeGreaterThanOrEqual(Math.PI * 2);
+    expect(b.state).toBe('departing'); expect(b.caughtMouse).toBe(true); expect(mice.mice).toHaveLength(0); expect(movement).toBeGreaterThan(800);
+    const low = b.altitude; life.step(0.1, 1200, 900, p, [], null, [], [], undefined, mice); expect(b.altitude).toBeGreaterThan(low);
+  });
+  it('has deep slow wingbeats, broad inner wings and separate feather tips', () => {
+    const b = hawk(0); b.state = 'soaring';
+    const up = hawkPose(0.3, b), down = hawkPose(0.83, b);
+    expect(up.spread - down.spread).toBeGreaterThan(0.3);
+    expect(hawkWingAt(0, 18, up)).toBeTruthy(); expect(hawkWingAt(-12, 19, up)).toBeTruthy();
+    expect(hawkWingAt(-2, 42 * up.spread, up)?.feather).toBe(true);
+    b.state = 'striking'; expect(hawkPose(0.83, b).spread).toBe(1);
+  });
   it('resolves one 50/50 catch attempt, and a missed mouse remains alive and darts away', () => {
     const p = new Pasture(1200, 900);
     for (const roll of [0.1, 0.4999, 0.5, 0.9]) {
       const life = new BirdLife(), mice = new MouseLife(), b = hawk(roll); mice.mice.push(mouse()); life.birds.push(b);
-      life.step(0.1, 1200, 900, p, [], null, [], [], undefined, mice);
+      for (let i = 0; i < 3; i++) life.step(0.1, 1200, 900, p, [], null, [], [], undefined, mice);
       expect(b.state).toBe('departing'); expect(!!b.caughtMouse).toBe(roll < 0.5); expect(mice.mice.length).toBe(roll < 0.5 ? 0 : 1);
       if (roll >= 0.5) expect(mice.mice[0].state).toBe('darting');
       life.step(0.1, 1200, 900, p, [], null, [], [], undefined, mice); expect(mice.mice.length).toBe(roll < 0.5 ? 0 : 1);
