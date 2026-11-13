@@ -197,10 +197,6 @@ export class Renderer {
     const barking = (d.barkAge ?? 99) < 0.36;
     this.put(hx + dx * 17 * scale, hy + dy * 17 * scale, barking ? 'O' : lineGlyph(sx, sy), barking ? 1 : 0.7, 3, 4);
     if (barking) this.put(hx + dx * 20 * scale, hy + dy * 20 * scale, 'v', 0.95, 2, 3);
-    // An unobtrusive copper selection mark makes the dog easy to pick out.
-    const selectionY = d.y - (d.atHome || d.penTransit === 'enter' || d.penTransit === 'exit' ? 19 : 25) * scale;
-    this.put(d.x - 10, selectionY, '[', 0.5, 4);
-    this.put(d.x + 10, selectionY, ']', 0.5, 4);
   }
   private bird(b: Bird) {
     if (b.kind === 'hawk') { this.hawk(b); return; }
