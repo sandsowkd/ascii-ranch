@@ -41,14 +41,21 @@ export class Renderer {
     this.atlas.width = this.aw * this.atlasCols; this.atlas.height = this.ah * 32 * 12;
     const ctx = this.atlas.getContext('2d')!;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `400 ${this.ah * 0.82}px "Geist Mono", monospace`;
-    const lows = [[48, 72, 35], [28, 24, 16], [126, 128, 105], [114, 120, 97], [99, 73, 43], [69, 69, 51], [32, 51, 29], [65, 70, 50], [28, 28, 27], [40, 111, 126], [138, 66, 74], [144, 113, 42]];
-    const highs = [[149, 182, 100], [75, 59, 34], [248, 243, 219], [255, 255, 245], [230, 182, 115], [229, 208, 136], [84, 123, 54], [169, 178, 138], [88, 84, 76], [116, 222, 218], [245, 153, 135], [246, 209, 107]];
+    const lows = [[48, 72, 35], [28, 24, 16], [126, 128, 105], [114, 120, 97], [99, 73, 43], [69, 69, 51], [32, 51, 29], [86, 47, 26], [28, 28, 27], [40, 111, 126], [138, 66, 74], [144, 113, 42]];
+    const highs = [[149, 182, 100], [75, 59, 34], [248, 243, 219], [255, 255, 245], [230, 182, 115], [229, 208, 136], [84, 123, 54], [207, 139, 79], [88, 84, 76], [116, 222, 218], [245, 153, 135], [246, 209, 107]];
     for (let family = 0; family < lows.length; family++) for (let level = 0; level < 32; level++) {
       const t = level / 31, lo = lows[family], hi = highs[family];
       ctx.fillStyle = `rgb(${Math.round(lo[0] + (hi[0] - lo[0]) * t)},${Math.round(lo[1] + (hi[1] - lo[1]) * t)},${Math.round(lo[2] + (hi[2] - lo[2]) * t)})`;
       for (let g = 0; g < GLYPHS.length; g++) {
         const eye = family === 3 && GLYPHS[g] === 'O', outline = family === 3 && '/\\|-()'.includes(GLYPHS[g]);
-        ctx.font = `${eye ? 500 : outline ? 600 : 400} ${this.ah * (eye ? 0.98 : outline ? 0.92 : 0.82)}px "Geist Mono", monospace`;
+        const timber = family === 7 && '-=|/\\'.includes(GLYPHS[g]);
+        ctx.font = `${eye ? 500 : outline || timber ? 600 : 400} ${this.ah * (eye ? 0.98 : outline ? 0.92 : timber ? 0.88 : 0.82)}px "Geist Mono", monospace`;
+        // Tiny vertical stems can have very little ink at 1× resolution. A
+        // fractional stroke keeps the wood brown and legible in a single cell.
+        if (timber) {
+          ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = this.dpr * 0.45;
+          ctx.strokeText(GLYPHS[g], g * this.aw + this.aw / 2, (family * 32 + level) * this.ah + this.ah / 2 + this.dpr * 0.35);
+        }
         ctx.fillText(GLYPHS[g], g * this.aw + this.aw / 2, (family * 32 + level) * this.ah + this.ah / 2 + this.dpr * 0.35);
       }
     }
@@ -260,19 +267,19 @@ export class Renderer {
       if (Math.abs(rail.a.y - rail.b.y) < 1) {
         const row = Math.floor(rail.a.y / p.cellH);
         for (let c = Math.floor(Math.min(rail.a.x, rail.b.x) / p.cellW); c <= Math.floor(Math.max(rail.a.x, rail.b.x) / p.cellW); c++)
-          this.put((c + 0.5) * p.cellW, (row + 0.5) * p.cellH, '-', 0.8, 5, 2);
+          this.put((c + 0.5) * p.cellW, (row + 0.5) * p.cellH, '-', 0.85, 7, 2);
       } else {
         const col = Math.floor(rail.a.x / p.cellW);
         for (let r = Math.floor(Math.min(rail.a.y, rail.b.y) / p.cellH); r <= Math.floor(Math.max(rail.a.y, rail.b.y) / p.cellH); r++)
-          this.put((col + 0.5) * p.cellW, (r + 0.5) * p.cellH, '|', 0.8, 5, 2);
+          this.put((col + 0.5) * p.cellW, (r + 0.5) * p.cellH, '|', 0.85, 7, 2);
       }
     }
     const door = gateLeaf(b, w.gateOpen), dx = door.b.x - door.a.x, dy = door.b.y - door.a.y;
     const length = Math.hypot(dx, dy), nx = dy / length, ny = -dx / length;
-    this.stroke(door.a.x, door.a.y, door.b.x, door.b.y, 0.8, 5, 2);
+    this.stroke(door.a.x, door.a.y, door.b.x, door.b.y, 0.85, 7, 2);
     for (const t of [0.25, 0.5, 0.75]) {
       const x = door.a.x + dx * t, y = door.a.y + dy * t;
-      this.stroke(x - nx * p.cellW, y - ny * p.cellW, x + nx * p.cellW, y + ny * p.cellW, 0.8, 5, 2);
+      this.stroke(x - nx * p.cellW, y - ny * p.cellW, x + nx * p.cellW, y + ny * p.cellW, 0.85, 7, 2);
     }
     this.put(door.b.x - dx * 0.12, door.b.y - dy * 0.12, 'o', 0.95, 5, 3);
     for (const post of w.fence.posts) {

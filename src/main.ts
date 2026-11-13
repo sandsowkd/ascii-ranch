@@ -21,7 +21,7 @@ function frame(now: number) {
   accumulator += elapsed; let steps = 0;
   while (accumulator >= step && steps < 6) { world.step(step); accumulator -= step; steps++; }
   if (steps === 6) accumulator = 0;
-  renderer.render(); controller.tick(); frames++;
+  renderer.render(); frames++;
   if (now - fpsAt > 1000) { fps = frames * 1000 / (now - fpsAt); frames = 0; fpsAt = now; }
 }
 function visibility() { cancelAnimationFrame(raf); last = 0; accumulator = 0; if (!document.hidden) raf = requestAnimationFrame(frame); }

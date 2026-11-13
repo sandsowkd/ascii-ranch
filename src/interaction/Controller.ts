@@ -1,4 +1,4 @@
-import { ABILITIES, type Ability, type World } from '../simulation/World';
+import type { Ability, World } from '../simulation/World';
 import type { Renderer } from '../engine/Renderer';
 
 export class Controller {
@@ -11,7 +11,6 @@ export class Controller {
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
   private settings = document.querySelector<HTMLElement>('#settings-panel')!;
   private settingsButton = document.querySelector<HTMLButtonElement>('#settings-toggle')!;
-  private lastUI = -1;
   constructor(private canvas: HTMLCanvasElement, private world: World, private renderer: Renderer) {
     this.pointer.x = world.width * 0.5; this.pointer.y = world.height * 0.5;
     const opts = { signal: this.abort.signal };
@@ -24,20 +23,16 @@ export class Controller {
     window.addEventListener('blur', this.cancel, opts);
     document.querySelector('#add-sheep')!.addEventListener('click', () => { if (world.addSheep()) { this.toast('one more little wanderer.'); this.persist(); } this.sync(); renderer.render(); }, opts);
     document.querySelector('#remove-sheep')!.addEventListener('click', () => { world.removeSheep(); this.persist(); this.sync(); renderer.render(); }, opts);
-    document.querySelector('#dog-button')!.addEventListener('click', () => { if (!world.dog) { world.toggleDog(); this.toast('left-click the meadow to send your dog there.'); } else this.cast('r'); this.sync(); renderer.render(); }, opts);
     document.querySelector('#feed-button')!.addEventListener('click', () => this.toggleFeed(), opts);
     document.querySelector('#regrow-button')!.addEventListener('click', () => this.toggleRegrow(), opts);
     document.querySelector('#pause')!.addEventListener('click', () => this.setPaused(!world.paused), opts);
     document.querySelector('#reset')!.addEventListener('click', () => { this.cancel(); world.reset(); world.toggleDog(); this.sync(); renderer.render(); this.toast('a fresh patch of green.'); }, opts);
     this.settingsButton.addEventListener('click', () => this.setSettingsOpen(this.settings.hidden), opts);
-    document.querySelector('#settings-close')!.addEventListener('click', () => this.setSettingsOpen(false), opts);
-    for (const el of document.querySelectorAll<HTMLButtonElement>('[data-ability]')) el.addEventListener('click', () => this.cast(el.dataset.ability as Ability), opts);
     window.addEventListener('keydown', e => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.altKey || e.ctrlKey || e.metaKey || e.repeat) return;
       if (e.code === 'Space' && e.target instanceof HTMLButtonElement) return;
       const key = e.key.toLowerCase();
       if (['q', 'w', 'e', 'r'].includes(key)) { e.preventDefault(); this.cast(key as Ability); }
-      if (key === 'f') this.toggleFeed();
       if (e.code === 'Space') { e.preventDefault(); this.toggleRegrow(); }
       if (key === 'p') { e.preventDefault(); this.setPaused(!world.paused); }
       if (key === 'h') this.setSettingsOpen(this.settings.hidden);
@@ -110,31 +105,14 @@ export class Controller {
   }
   sync() {
     document.querySelector('#sheep-count')!.textContent = String(this.world.sheep.length);
-    document.querySelector('#flock-caption')!.textContent = this.world.lambs.length ? `your flock · ${this.world.lambs.length} ${this.world.lambs.length === 1 ? 'lamb' : 'lambs'}` : 'your little flock';
+    document.querySelector('#flock-caption')!.textContent = `${this.world.lambs.length} ${this.world.lambs.length === 1 ? 'lamb' : 'lambs'}`;
     document.querySelector<HTMLButtonElement>('#remove-sheep')!.disabled = this.world.sheep.length === 0;
     document.querySelector<HTMLButtonElement>('#add-sheep')!.disabled = this.world.sheep.length === 80;
-    const dog = document.querySelector<HTMLButtonElement>('#dog-button')!;
-    dog.setAttribute('aria-pressed', String(!!this.world.dog)); dog.setAttribute('aria-label', this.world.dog ? this.world.dog.recallReady ? 'Release sheepdog' : 'Recall sheepdog' : 'Call sheepdog');
-    document.querySelector('#dog-label')!.textContent = this.world.dog ? this.world.dog.recallReady ? 'send dog out' : 'recall dog' : 'call sheepdog';
     const pause = document.querySelector<HTMLButtonElement>('#pause')!;
     pause.textContent = this.world.paused ? '[ resume ]' : '[ pause ]'; pause.setAttribute('aria-pressed', String(this.world.paused)); pause.setAttribute('aria-label', this.world.paused ? 'Resume meadow' : 'Pause meadow');
-    document.querySelector<HTMLElement>('#paused-note')!.hidden = !this.world.paused;
     document.querySelector('#feed-button')!.setAttribute('aria-pressed', String(this.feedMode)); this.canvas.classList.toggle('feed-mode', this.feedMode);
     document.querySelector('#regrow-button')!.setAttribute('aria-pressed', String(this.regrowMode));
     this.canvas.classList.toggle('regrow-mode', this.regrowMode);
-    this.tick(true);
-  }
-  tick(force = false) {
-    if (!force && this.world.time - this.lastUI < 0.1 && this.world.time >= this.lastUI) return;
-    this.lastUI = this.world.time;
-    for (const button of document.querySelectorAll<HTMLButtonElement>('[data-ability]')) {
-      const key = button.dataset.ability as Ability, d = this.world.dog;
-      const active = key === 'q' ? this.world.panicLeft > 0 : key === 'w' ? !!d?.orbit : key === 'e' ? d && (d.sprint > 0 || d.launching) : d?.recallReady;
-      button.classList.remove('cooling'); button.classList.toggle('active', !!active); button.disabled = this.world.paused;
-      button.querySelector('.cooldown')!.textContent = '';
-      button.setAttribute('aria-label', `${key.toUpperCase()} ${ABILITIES[key].name}`);
-      if (key === 'r') button.querySelector('.ability-name')!.textContent = d?.recallReady ? 'release' : 'recall';
-    }
   }
   destroy() { this.cancel(); this.abort.abort(); clearTimeout(this.toastTimer); }
 }

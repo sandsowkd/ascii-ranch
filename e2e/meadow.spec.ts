@@ -33,13 +33,12 @@ test('left-click movement, gentler bark and immediate recasts without cooldowns'
   await page.keyboard.press('e'); expect((await state(page)).dog.sprint).toBeGreaterThan(0.3);
   await page.keyboard.press('q'); await page.keyboard.press('q');
   expect((await state(page)).barks).toBe(2); expect((await state(page)).panic).toBeGreaterThan(1.8);
-  await expect(page.locator('[data-ability=q]')).toBeEnabled();
+  await expect(page.locator('[data-ability]')).toHaveCount(0);
 });
 
 test('W covers the entire flock; R recalls then launches straight to the cursor', async ({ page }, info) => {
   await page.keyboard.press('w'); const w = await state(page); expect(w.dog.orbit).toBe('w'); expect(w.dog.orbitPath.length).toBeGreaterThan(20);
   expect(w.sheep.every((s: any) => s.x > w.outline.left && s.x < w.outline.right && s.y > w.outline.top && s.y < w.outline.bottom)).toBe(true);
-  await expect(page.locator('[data-ability=w]')).toHaveClass(/active/);
   await page.keyboard.press('r'); let s = await state(page);
   expect(s.dog.orbit).toBeNull(); expect(s.dog.recallReady).toBe(true); expect(s.dog.targetX).toBe(s.home.doorX);
   const x = s.width * 0.7, y = s.height * 0.4;
@@ -56,14 +55,14 @@ test('single right-clicks feed without calling or redirecting the dog; flock con
   await page.getByRole('button', { name: 'Add a sheep', exact: true }).click(); expect((await state(page)).count).toBe(19);
   await page.reload(); expect((await state(page)).count).toBe(19); await openSettings(page);
   await page.getByRole('button', { name: 'Remove a sheep', exact: true }).click(); expect((await state(page)).count).toBe(18);
-  await page.locator('#settings-close').click();
+  await page.locator('#settings-toggle').click();
   await page.mouse.click(first.width * 0.5, first.height * 0.4, { button: 'right' });
   expect((await state(page)).feed.length).toBe(1); expect((await state(page)).dog.atHome).toBe(true);
   await page.mouse.click(first.width * 0.7, first.height * 0.4); const commanded = await state(page);
   await page.mouse.click(first.width * 0.4, first.height * 0.45, { button: 'right' }); const fed = await state(page);
   expect(fed.feed.length).toBe(2); expect(fed.dog.targetX).toBe(commanded.dog.targetX); expect(fed.dog.targetY).toBe(commanded.dog.targetY);
-  await openSettings(page); await page.locator('#dog-button').click(); expect((await state(page)).dog.recallReady).toBe(true);
-  await page.locator('#dog-button').click(); expect((await state(page)).dog.launching).toBe(true);
+  await page.keyboard.press('r'); expect((await state(page)).dog.recallReady).toBe(true);
+  await page.keyboard.press('r'); expect((await state(page)).dog.launching).toBe(true);
 });
 
 test('pause, settings, reset, keyboard visibility, reduced motion and resize', async ({ page }) => {
@@ -78,11 +77,11 @@ test('pause, settings, reset, keyboard visibility, reduced motion and resize', a
   await page.emulateMedia({ reducedMotion: 'reduce' }); await page.reload(); expect((await state(page)).paused).toBe(true);
 });
 
-test('touch movement, ability buttons, long-press feeding and no scroll', async ({ page, isMobile }) => {
+test('touch movement, compact controls, long-press feeding and no scroll', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Touch checks run on mobile');
   const s = await state(page); await page.touchscreen.tap(s.width * 0.3, s.height * 0.4); expect((await state(page)).dog).not.toBeNull();
-  await openSettings(page); await page.locator('[data-ability=q]').tap(); expect((await state(page)).barks).toBeGreaterThan(0);
-  await page.locator('#settings-close').tap();
+  await openSettings(page); await expect(page.locator('[data-ability]')).toHaveCount(0);
+  await page.locator('#settings-toggle').tap();
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: s.width * 0.7, y: s.height * 0.35 }] });
   // A hold is a time-based gesture; wait for its threshold explicitly.
@@ -132,9 +131,9 @@ test('white outlined dark faces and pronounced ears stay clear on grazed ground 
 test('small lambs accompany the flock and their counter follows adult population changes', async ({ page }) => {
   await openSettings(page); const before = await state(page); expect(before.lambs).toHaveLength(3);
   expect(before.lambs.every((l: any) => l.size < 0.6 && before.sheep.some((s: any) => s.id === l.parentId))).toBe(true);
-  await expect(page.locator('#flock-caption')).toHaveText('your flock · 3 lambs');
+  await expect(page.locator('#flock-caption')).toHaveText('3 lambs');
   await page.getByRole('button', { name: 'Remove a sheep', exact: true }).click();
-  expect((await state(page)).lambs).toHaveLength(2); await expect(page.locator('#flock-caption')).toHaveText('your flock · 2 lambs');
+  expect((await state(page)).lambs).toHaveLength(2); await expect(page.locator('#flock-caption')).toHaveText('2 lambs');
   await page.getByRole('button', { name: 'Add a sheep', exact: true }).click();
   expect((await state(page)).lambs).toHaveLength(3);
 });
@@ -384,7 +383,7 @@ test('the compact pen has a working left gate for release and recall', async ({ 
     const { world: w, renderer: r } = (window as any).__meadow;
     return r.cellAt(w.pen.left, w.home.y).family;
   });
-  expect(closedDoor).toBe(5);
+  expect(closedDoor).toBe(7);
   await page.mouse.move(initial.width * 0.4, initial.height * 0.4); await page.keyboard.press('r');
   const released = await page.evaluate(() => {
     const app = (window as any).__meadow, w = app.world;
@@ -393,7 +392,7 @@ test('the compact pen has a working left gate for release and recall', async ({ 
     return { gate: w.gateOpen, passage: w.dog.penTransit, launching: w.dog.launching,
       ink: app.renderer.cellAt(w.pen.left, w.home.y).family };
   });
-  expect(released.gate).toBe(1); expect(released.passage).toBe('exit'); expect(released.launching).toBe(true); expect(released.ink).not.toBe(5);
+  expect(released.gate).toBe(1); expect(released.passage).toBe('exit'); expect(released.launching).toBe(true); expect(released.ink).not.toBe(7);
   await page.screenshot({ path: `docs/${info.project.name}-pen-gate-open.png` });
   await page.evaluate(() => {
     const app = (window as any).__meadow; for (let i = 0; i < 360; i++) app.world.step(1 / 60); app.renderer.render();
@@ -413,6 +412,16 @@ test('wooden rails stay brown and landed birds show two bright centered legs in 
     const app = (window as any).__meadow, w = app.world, r = app.renderer, p = w.pasture;
     w.reset(0); w.toggleDog(); w.paused = true; r.render();
     const rails = w.fence.rails.map((rail: any) => r.cellAt(rail.a.x + (rail.b.x - rail.a.x) / 3, rail.a.y + (rail.b.y - rail.a.y) / 3).family);
+    const rightRailRows: { family: number; brown: number }[] = [], d = r.canvas.width / w.width, ctx = r.canvas.getContext('2d');
+    const col = Math.floor(w.pen.right / p.cellW);
+    for (let row = Math.floor(w.pen.top / p.cellH); row <= Math.floor(w.pen.bottom / p.cellH); row++) {
+      const cell = r.cellAt((col + 0.5) * p.cellW, (row + 0.5) * p.cellH); if (cell.priority === 3) continue;
+      const x = Math.round(col * p.cellW * d), y = Math.round(row * p.cellH * d);
+      const pixels = ctx.getImageData(x, y, Math.round((col + 1) * p.cellW * d) - x, Math.round((row + 1) * p.cellH * d) - y).data;
+      let brown = 0;
+      for (let i = 0; i < pixels.length; i += 4) if (pixels[i] > pixels[i + 1] + 14 && pixels[i + 1] > pixels[i + 2] + 9 && pixels[i] > 70) brown++;
+      rightRailRows.push({ family: cell.family, brown });
+    }
     const post = w.fence.posts[1], cases: any[] = [];
     for (const perched of [false, true]) for (const heading of [0, Math.PI]) for (const color of [0, 1, 2]) {
       const x = perched ? post.x : w.width * 0.4, y = perched ? post.y - 2 * p.cellH : w.height * 0.4;
@@ -429,9 +438,11 @@ test('wooden rails stay brown and landed birds show two bright centered legs in 
       cases.push({ perched, heading, color, legs, centered: Math.min(...cols) + Math.max(...cols) === col * 2 });
     }
     w.dog = null; w.birdLife.birds.length = 1; r.render();
-    return { rails, cases };
+    return { rails, rightRailRows, cases };
   });
-  expect(result.rails).toEqual([5, 5, 5]);
+  expect(result.rails).toEqual([7, 7, 7]);
+  expect(result.rightRailRows.length).toBeGreaterThan(4);
+  for (const row of result.rightRailRows) { expect(row.family).toBe(7); expect(row.brown).toBeGreaterThan(0); }
   for (const c of result.cases) {
     expect(c.centered).toBe(true);
     expect(c.legs).toHaveLength(2);
@@ -441,18 +452,20 @@ test('wooden rails stay brown and landed birds show two bright centered legs in 
 });
 
 test('only an ASCII settings button remains on the field and its panel owns every control', async ({ page }, info) => {
-  const panel = page.getByRole('dialog', { name: 'settings', exact: true }), toggle = page.getByRole('button', { name: 'Meadow settings', exact: true });
+  const panel = page.getByRole('dialog', { name: 'Meadow controls', exact: true }), toggle = page.getByRole('button', { name: 'Meadow settings', exact: true });
   await expect(panel).toBeHidden(); await expect(page.getByRole('button')).toHaveCount(1);
   expect((await page.locator('body').innerText()).trim()).toBe('[*]');
   const first = await state(page); await toggle.focus(); await page.keyboard.press('Space');
   await expect(panel).toBeVisible(); await expect(toggle).toHaveAttribute('aria-expanded', 'true'); expect((await state(page)).regrowMode).toBe(false);
   await expect(page.getByLabel('How to play')).toBeVisible();
-  for (const id of ['add-sheep', 'remove-sheep', 'dog-button', 'feed-button', 'regrow-button', 'pause', 'reset'])
+  for (const id of ['add-sheep', 'remove-sheep', 'feed-button', 'regrow-button', 'pause', 'reset'])
     await expect(panel.locator(`#${id}`)).toBeAttached();
-  await expect(panel.locator('[data-ability]')).toHaveCount(4);
-  const box = await panel.boundingBox(); expect(box!.x).toBeGreaterThanOrEqual(8); expect(box!.y + box!.height).toBeLessThanOrEqual(first.height - 8);
+  await expect(panel.locator('[data-ability], #dog-button, #settings-close, h1')).toHaveCount(0);
+  await expect(panel.getByText('F, then click', { exact: true })).toHaveCount(0);
+  await expect(panel.locator('.action-grid button')).toHaveCount(4);
+  const box = await panel.boundingBox(); expect(box!.width).toBeLessThanOrEqual(285); expect(box!.height).toBeLessThan(410); expect(box!.x).toBeGreaterThanOrEqual(8); expect(box!.y + box!.height).toBeLessThanOrEqual(first.height - 8);
   await page.screenshot({ path: `docs/${info.project.name}-settings.png` });
-  await page.keyboard.press('Escape'); await expect(panel).toBeHidden(); await expect(toggle).toBeFocused();
+  await toggle.click(); await expect(panel).toBeHidden(); await expect(toggle).toBeFocused();
   await page.keyboard.press('h'); await expect(panel).toBeVisible();
   await page.mouse.click(first.width * 0.1, first.height * 0.3); await expect(panel).toBeHidden();
   const dismissed = await state(page); expect(dismissed.dog.targetX).toBe(first.dog.targetX); expect(dismissed.dog.targetY).toBe(first.dog.targetY); expect(dismissed.feed).toHaveLength(0);
