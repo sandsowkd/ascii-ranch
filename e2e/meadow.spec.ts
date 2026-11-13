@@ -374,10 +374,10 @@ test('the dog starts inside a thick posted pen, opens its mouth to bark, and bir
   await page.screenshot({ path: `docs/${info.project.name}-pen-bark.png` });
 });
 
-test('the short 2:1 pen has a working left gate for release and recall', async ({ page }, info) => {
+test('the compact pen has a working left gate for release and recall', async ({ page }, info) => {
   const initial = await state(page);
   expect(initial.gateOpen).toBe(0); expect(initial.dog.atHome).toBe(true); expect(initial.dog.recallReady).toBe(true);
-  expect(initial.pen.right - initial.pen.left).toBeCloseTo(2 * (initial.pen.bottom - initial.pen.top));
+  expect(initial.pen.bottom - initial.pen.top).toBeCloseTo(72 * (initial.width < 600 ? 0.79 : 1));
   const closedDoor = await page.evaluate(() => {
     const { world: w, renderer: r } = (window as any).__meadow;
     return r.cellAt(w.pen.left, w.home.y).family;

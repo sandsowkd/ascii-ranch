@@ -129,11 +129,12 @@ describe('forward grazing and a physical recall pen', () => {
     const turn = Math.atan2(s.goalY - 450, s.goalX - 500);
     expect(s.state).toBe('walking'); expect(Math.abs(turn)).toBeGreaterThan(0.3); expect(Math.abs(turn)).toBeLessThanOrEqual(Math.PI / 4 + 1e-8);
   });
-  it.each([[1200, 900], [412, 839]])('uses a compact 2:1 pen and opens the gate for exit and recall at %i × %i', (width, height) => {
+  it.each([[1200, 900], [412, 839]])('uses a compact pen and opens the gate for exit and recall at %i × %i', (width, height) => {
     const w = new World(width, height, 0); w.toggleDog();
     expect(w.dog!.x).toBe(w.home.x); expect(w.dog!.y).toBe(w.home.y); expect(w.dog!.atHome).toBe(true); expect(w.gateOpen).toBe(0);
     expect(w.fence.posts).toHaveLength(6);
-    expect(w.pen.right - w.pen.left).toBeCloseTo((w.pen.bottom - w.pen.top) * 2);
+    expect(w.pen.right - w.pen.left).toBeCloseTo(120 * w.scale);
+    expect(w.pen.bottom - w.pen.top).toBeCloseTo(72 * w.scale);
     for (const x of [w.pen.left, w.pen.right]) expect(w.fence.posts.filter(p => p.x === x)).toHaveLength(2);
     const target = { x: width * 0.25, y: height * 0.35 };
     w.sendDog(target.x, target.y);
@@ -436,7 +437,10 @@ describe('safe dog routes and active herding', () => {
     const active = new World(1440, 900, 18), calm = new World(1440, 900, 18);
     const spread = (w: World) => { const h = w.herdCenter(); return w.sheep.reduce((sum, s) => sum + Math.hypot(s.x - h.x, s.y - h.y), 0) / w.sheep.length; };
     active.cast('w'); let peak = 0;
-    for (let i = 0; i < 1800; i++) { active.step(1 / 60); calm.step(1 / 60); peak = Math.max(peak, Math.hypot(active.dog!.vx, active.dog!.vy)); }
+    // Compare at the end of the full pass, before the flock resumes spreading
+    // out to graze. Pen dimensions change how long the completed lap takes.
+    for (let i = 0; i < 3600 && active.dog!.orbit; i++) { active.step(1 / 60); calm.step(1 / 60); peak = Math.max(peak, Math.hypot(active.dog!.vx, active.dog!.vy)); }
+    expect(active.dog!.orbit).toBeNull();
     expect(peak).toBeGreaterThan(180); expect(spread(active)).toBeLessThan(spread(calm) * 0.8);
   });
   it('keeps grass bare for at least a minute before staged growth begins', () => {

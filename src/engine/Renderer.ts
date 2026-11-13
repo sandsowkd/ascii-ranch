@@ -254,19 +254,18 @@ export class Renderer {
     const w = this.world, p = w.pasture, b = w.pen;
     for (const rail of w.fence.rails) {
       if (Math.abs(rail.a.y - rail.b.y) < 1) {
-        const row = Math.floor(rail.a.y / p.cellH), inner = rail.a.y === b.top ? 1 : -1;
-        for (let c = Math.floor(Math.min(rail.a.x, rail.b.x) / p.cellW); c <= Math.floor(Math.max(rail.a.x, rail.b.x) / p.cellW); c++) for (const dr of [0, inner])
-          this.put((c + 0.5) * p.cellW, (row + dr + 0.5) * p.cellH, '=', 0.9, 7, 2);
+        const row = Math.floor(rail.a.y / p.cellH);
+        for (let c = Math.floor(Math.min(rail.a.x, rail.b.x) / p.cellW); c <= Math.floor(Math.max(rail.a.x, rail.b.x) / p.cellW); c++)
+          this.put((c + 0.5) * p.cellW, (row + 0.5) * p.cellH, '-', 0.8, 7, 2);
       } else {
-        const col = Math.floor(rail.a.x / p.cellW), inner = rail.a.x === b.left ? 1 : -1;
-        for (let r = Math.floor(Math.min(rail.a.y, rail.b.y) / p.cellH); r <= Math.floor(Math.max(rail.a.y, rail.b.y) / p.cellH); r++) for (const dc of [0, inner])
-          this.put((col + dc + 0.5) * p.cellW, (r + 0.5) * p.cellH, '|', 0.9, 7, 2);
+        const col = Math.floor(rail.a.x / p.cellW);
+        for (let r = Math.floor(Math.min(rail.a.y, rail.b.y) / p.cellH); r <= Math.floor(Math.max(rail.a.y, rail.b.y) / p.cellH); r++)
+          this.put((col + 0.5) * p.cellW, (r + 0.5) * p.cellH, '|', 0.8, 7, 2);
       }
     }
     const door = gateLeaf(b, w.gateOpen), dx = door.b.x - door.a.x, dy = door.b.y - door.a.y;
     const length = Math.hypot(dx, dy), nx = dy / length, ny = -dx / length;
-    for (const offset of [-p.cellW * 0.5, p.cellW * 0.5])
-      this.stroke(door.a.x + nx * offset, door.a.y + ny * offset, door.b.x + nx * offset, door.b.y + ny * offset, 0.9, 5, 2);
+    this.stroke(door.a.x, door.a.y, door.b.x, door.b.y, 0.8, 5, 2);
     for (const t of [0.25, 0.5, 0.75]) {
       const x = door.a.x + dx * t, y = door.a.y + dy * t;
       this.stroke(x - nx * p.cellW, y - ny * p.cellW, x + nx * p.cellW, y + ny * p.cellW, 0.8, 5, 2);

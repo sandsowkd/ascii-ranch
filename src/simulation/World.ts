@@ -58,7 +58,7 @@ export class World {
   }
   get pen(): Rect {
     const right = this.width - 32 * this.scale, bottom = this.dogBounds.bottom - 5 * this.scale;
-    return { left: right - 120 * this.scale, right, top: bottom - 60 * this.scale, bottom };
+    return { left: right - 120 * this.scale, right, top: bottom - 72 * this.scale, bottom };
   }
   get fence() {
     if (!this.fenceCache || this.fenceCache.width !== this.width || this.fenceCache.height !== this.height)
@@ -77,7 +77,7 @@ export class World {
     const b = this.pen, x = (b.left + b.right) / 2, y = (b.top + b.bottom) / 2;
     return { x, y, doorX: x, doorY: y };
   }
-  private get penApproach() { return { x: this.pen.left - 110 * this.scale, y: this.home.y }; }
+  private get penApproach() { return { x: this.pen.left - (this.pen.bottom - this.pen.top) - 54 * this.scale, y: this.home.y }; }
   private needsPenExit(d: Dog) {
     return d.x > this.penApproach.x && d.x <= this.home.x + 2 * this.scale && Math.abs(d.y - this.home.y) < 3 * this.scale &&
       (d.atHome || d.penTransit === 'exit' || d.penTransit === 'enter' || d.x >= this.pen.left);
