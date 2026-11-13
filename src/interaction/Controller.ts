@@ -3,6 +3,7 @@ import type { Renderer } from '../engine/Renderer';
 
 export class Controller {
   regrowMode = false;
+  fenceMode = false;
   pointer = { x: 0, y: 0 };
   private abort = new AbortController();
   private downAt = 0; private startX = 0; private startY = 0;
@@ -19,7 +20,7 @@ export class Controller {
     canvas.addEventListener('pointerup', this.up, opts);
     canvas.addEventListener('pointercancel', this.cancel, opts);
     canvas.addEventListener('lostpointercapture', this.cancel, opts);
-    window.addEventListener('blur', this.cancel, opts);
+    window.addEventListener('blur', () => { this.fenceMode = false; this.cancel(); this.sync(); renderer.render(); }, opts);
     document.querySelector('#add-sheep')!.addEventListener('click', () => { if (world.addSheep()) { this.toast('one more little wanderer.'); this.persist(); } this.sync(); renderer.render(); }, opts);
     document.querySelector('#remove-sheep')!.addEventListener('click', () => { world.removeSheep(); this.persist(); this.sync(); renderer.render(); }, opts);
     document.querySelector('#add-lamb')!.addEventListener('click', () => { world.addLamb(); this.persist(); this.sync(); renderer.render(); }, opts);
@@ -32,12 +33,15 @@ export class Controller {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.altKey || e.ctrlKey || e.metaKey || e.repeat) return;
       if (e.code === 'Space' && e.target instanceof HTMLButtonElement) return;
       const key = e.key.toLowerCase();
+      if (key === 'f') { e.preventDefault(); if (!this.settings.hidden) this.setSettingsOpen(false); this.regrowMode = false; this.fenceMode = true; this.sync(); }
+      if (e.key === 'Backspace' && this.settings.hidden) { e.preventDefault(); this.cancel(); world.undoFence(); renderer.render(); }
       if (['q', 'w', 'e', 'r'].includes(key)) { e.preventDefault(); this.cast(key as Ability); }
       if (e.code === 'Space') { e.preventDefault(); this.toggleRegrow(); }
       if (key === 'p') { e.preventDefault(); this.setPaused(!world.paused); }
       if (key === 'h') this.setSettingsOpen(this.settings.hidden);
-      if (e.key === 'Escape') { this.regrowMode = false; this.sync(); if (!this.settings.hidden) this.setSettingsOpen(false); }
+      if (e.key === 'Escape') { this.fenceMode = false; this.regrowMode = false; this.cancel(); this.sync(); renderer.render(); if (!this.settings.hidden) this.setSettingsOpen(false); }
     }, opts);
+    window.addEventListener('keyup', e => { if (e.key.toLowerCase() === 'f') { this.fenceMode = false; this.sync(); } }, opts);
     this.sync();
   }
   private setSettingsOpen(open: boolean) {
@@ -53,6 +57,7 @@ export class Controller {
     e.preventDefault(); this.pointerId = e.pointerId; this.button = e.button;
     this.canvas.setPointerCapture(e.pointerId); this.pointer = this.coords(e);
     this.startX = this.pointer.x; this.startY = this.pointer.y; this.downAt = performance.now(); this.dragged = false;
+    if (this.fenceMode && e.button === 0) { this.previewFence(); return; }
     if (this.regrowMode) { this.paint(this.pointer, this.pointer); return; }
     if (this.world.paused) return;
     if (e.button === 0 && e.pointerType !== 'touch') { this.world.sendDog(this.pointer.x, this.pointer.y); this.sync(); }
@@ -61,6 +66,7 @@ export class Controller {
     if (!this.settings.hidden) return;
     if (this.pointerId !== null && e.pointerId !== this.pointerId) return;
     const previous = this.pointer; this.pointer = this.coords(e);
+    if (this.world.fencePreview) { this.previewFence(); return; }
     if (this.regrowMode) { this.paint(previous, this.pointer); return; }
     if (this.pointerId !== null && Math.hypot(this.pointer.x - this.startX, this.pointer.y - this.startY) > 6) this.dragged = true;
     if (this.world.paused) return;
@@ -69,6 +75,13 @@ export class Controller {
   private up = (e: PointerEvent) => {
     if (e.pointerId !== this.pointerId) return;
     const p = this.coords(e);
+    if (this.world.fencePreview) {
+      const rail = this.world.fenceEndpoints({ x: this.startX, y: this.startY }, p);
+      const added = this.world.addFence(rail.a, rail.b);
+      this.cancel(); this.renderer.render(); this.toast(added ? 'fence placed. backspace to undo.' : 'leave a little room around the animals and pen.');
+      if (this.canvas.hasPointerCapture(e.pointerId)) this.canvas.releasePointerCapture(e.pointerId);
+      return;
+    }
     if (!this.world.paused && !this.regrowMode) {
       const touchFeed = e.pointerType === 'touch' && !this.dragged && performance.now() - this.downAt > 450;
       if (!this.dragged && (this.button === 2 || touchFeed)) {
@@ -78,7 +91,11 @@ export class Controller {
     this.cancel(); this.sync(); this.renderer.render();
     if (this.canvas.hasPointerCapture(e.pointerId)) this.canvas.releasePointerCapture(e.pointerId);
   };
-  private cancel = () => { this.pointerId = null; this.button = -1; this.canvas.classList.remove('dragging'); };
+  private cancel = () => { this.pointerId = null; this.button = -1; this.world.fencePreview = null; this.canvas.classList.remove('dragging'); };
+  private previewFence() {
+    const rail = this.world.fenceEndpoints({ x: this.startX, y: this.startY }, this.pointer);
+    this.world.fencePreview = { ...rail, valid: this.world.canAddFence(rail.a, rail.b) }; this.renderer.render();
+  }
   cast(key: Ability) {
     if (this.world.cast(key, this.pointer)) {
       const text: Record<Ability, string> = { q: 'woof! a little room, please.', w: 'the long way round. every last sheep.', e: 'a quick pair of paws.', r: this.world.dog?.recallReady ? 'back to the pen. r again to race to your cursor.' : 'back to the meadow!' };
@@ -86,7 +103,7 @@ export class Controller {
     }
   }
   private toggleRegrow() {
-    this.regrowMode = !this.regrowMode; this.cancel(); this.sync();
+    this.regrowMode = !this.regrowMode; this.fenceMode = false; this.cancel(); this.sync();
     if (!this.settings.hidden) this.setSettingsOpen(false);
     if (this.regrowMode) { this.paint(this.pointer, this.pointer); this.toast('regrow brush on. hover to grow; space to finish.'); }
     else this.toast('regrow brush off.');
@@ -116,6 +133,7 @@ export class Controller {
     const pause = document.querySelector<HTMLButtonElement>('#pause')!;
     pause.textContent = this.world.paused ? '[ resume ]' : '[ pause ]'; pause.setAttribute('aria-pressed', String(this.world.paused)); pause.setAttribute('aria-label', this.world.paused ? 'Resume meadow' : 'Pause meadow');
     this.canvas.classList.toggle('regrow-mode', this.regrowMode);
+    this.canvas.classList.toggle('fence-mode', this.fenceMode);
   }
   destroy() { this.cancel(); this.abort.abort(); clearTimeout(this.toastTimer); }
 }

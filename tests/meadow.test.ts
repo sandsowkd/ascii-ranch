@@ -273,7 +273,7 @@ describe('a controllable sheepdog', () => {
     Object.assign(s, { x: 530, y: 400, timer: 100 }); w.toggleDog();
     Object.assign(w.dog!, { x: 500, y: 400, targetX: 500, targetY: 400, arrived: true, sleeping: true, idleTime: 8 });
     const small = w.dogAvoidanceRadius(); advance(w, 1);
-    expect(s.x).toBeGreaterThan(532); expect(s.state).toBe('grazing'); expect(Math.hypot(s.vx, s.vy)).toBeLessThan(10);
+    expect(s.x).toBeGreaterThan(537); expect(s.state).toBe('grazing'); expect(Math.hypot(s.vx, s.vy)).toBeLessThanOrEqual(13);
     w.sendDog(600, 400); expect(w.dogAvoidanceRadius()).toBeGreaterThan(small * 1.5);
     expect(w.pen.left).toBeGreaterThan(w.width * 0.75); expect(w.pen.top).toBeGreaterThan(w.height * 0.7);
     w.cast('r'); expect(w.dog!.targetX).toBeGreaterThan(w.pen.left); expect(w.dog!.targetX).toBeLessThan(w.pen.right);

@@ -10,7 +10,7 @@
   <title>ASCII Meadow — the grass is greener here</title>
 </head>
 <body>
-  <canvas id="meadow" tabindex="0" aria-label="Living ASCII meadow. Left-click to move the sheepdog. Right-click to feed. Space toggles the regrow brush. Q bark, W circle every sheep, E sprint. R recall to the pen; R again sprints to the cursor. No cooldowns."></canvas>
+  <canvas id="meadow" tabindex="0" aria-label="Living ASCII meadow. Left-click to move the sheepdog. Right-click to feed. Hold F and drag to build a straight fence. Backspace undoes the last fence. Space toggles the regrow brush. Q bark, W circle every sheep, E sprint. R recall to the pen; R again sprints to the cursor. No cooldowns."></canvas>
   <button id="settings-toggle" aria-label="Meadow settings" aria-expanded="false" aria-controls="settings-panel"><span aria-hidden="true">[*]</span></button>
   <section id="settings-panel" role="dialog" aria-label="Meadow controls" tabindex="-1" hidden>
     <section class="flock-controls" aria-label="Flock size">
@@ -25,7 +25,7 @@
     </section>
     <section id="help" class="settings-section" aria-label="How to play">
       <h2>how to play</h2>
-      <dl><dt class="desktop-hint">left-click</dt><dd class="desktop-hint">move the dog</dd><dt class="touch-hint">tap</dt><dd class="touch-hint">move the dog</dd><dt class="desktop-hint">right-click</dt><dd class="desktop-hint">drop feed</dd><dt class="touch-hint">hold</dt><dd class="touch-hint">drop feed</dd><dt>Q</dt><dd>bark</dd><dt>W</dt><dd>circle the flock</dd><dt>E</dt><dd>sprint</dd><dt>R</dt><dd>recall / release at cursor</dd><dt>space</dt><dd>hover to regrow grass</dd><dt>P</dt><dd>pause / resume</dd><dt>H / escape</dt><dd>menu / close &amp; cancel tools</dd></dl>
+      <dl><dt class="desktop-hint">left-click</dt><dd class="desktop-hint">move the dog</dd><dt class="touch-hint">tap</dt><dd class="touch-hint">move the dog</dd><dt class="desktop-hint">right-click</dt><dd class="desktop-hint">drop feed</dd><dt class="touch-hint">hold</dt><dd class="touch-hint">drop feed</dd><dt>Q</dt><dd>bark</dd><dt>W</dt><dd>circle the flock</dd><dt>E</dt><dd>sprint</dd><dt>R</dt><dd>recall / release at cursor</dd><dt>F + drag</dt><dd>build a straight fence</dd><dt>backspace</dt><dd>undo last fence</dd><dt>space</dt><dd>hover to regrow grass</dd><dt>P</dt><dd>pause / resume</dd><dt>H / escape</dt><dd>menu / close &amp; cancel tools</dd></dl>
     </section>
     <div id="toast" class="sr-only" role="status" aria-live="polite"></div>
   </section>
