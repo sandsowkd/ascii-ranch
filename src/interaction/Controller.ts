@@ -2,7 +2,6 @@ import type { Ability, World } from '../simulation/World';
 import type { Renderer } from '../engine/Renderer';
 
 export class Controller {
-  feedMode = false;
   regrowMode = false;
   pointer = { x: 0, y: 0 };
   private abort = new AbortController();
@@ -23,8 +22,9 @@ export class Controller {
     window.addEventListener('blur', this.cancel, opts);
     document.querySelector('#add-sheep')!.addEventListener('click', () => { if (world.addSheep()) { this.toast('one more little wanderer.'); this.persist(); } this.sync(); renderer.render(); }, opts);
     document.querySelector('#remove-sheep')!.addEventListener('click', () => { world.removeSheep(); this.persist(); this.sync(); renderer.render(); }, opts);
-    document.querySelector('#feed-button')!.addEventListener('click', () => this.toggleFeed(), opts);
-    document.querySelector('#regrow-button')!.addEventListener('click', () => this.toggleRegrow(), opts);
+    document.querySelector('#add-lamb')!.addEventListener('click', () => { world.addLamb(); this.persist(); this.sync(); renderer.render(); }, opts);
+    document.querySelector('#remove-lamb')!.addEventListener('click', () => { world.removeLamb(); this.persist(); this.sync(); renderer.render(); }, opts);
+    document.querySelector('#regrow-button')!.addEventListener('click', () => { world.pasture.regrowAll(); renderer.render(); this.toast('all grass restored.'); }, opts);
     document.querySelector('#pause')!.addEventListener('click', () => this.setPaused(!world.paused), opts);
     document.querySelector('#reset')!.addEventListener('click', () => { this.cancel(); world.reset(); world.toggleDog(); this.sync(); renderer.render(); this.toast('a fresh patch of green.'); }, opts);
     this.settingsButton.addEventListener('click', () => this.setSettingsOpen(this.settings.hidden), opts);
@@ -36,7 +36,7 @@ export class Controller {
       if (e.code === 'Space') { e.preventDefault(); this.toggleRegrow(); }
       if (key === 'p') { e.preventDefault(); this.setPaused(!world.paused); }
       if (key === 'h') this.setSettingsOpen(this.settings.hidden);
-      if (e.key === 'Escape') { this.feedMode = false; this.regrowMode = false; this.sync(); if (!this.settings.hidden) this.setSettingsOpen(false); }
+      if (e.key === 'Escape') { this.regrowMode = false; this.sync(); if (!this.settings.hidden) this.setSettingsOpen(false); }
     }, opts);
     this.sync();
   }
@@ -55,7 +55,7 @@ export class Controller {
     this.startX = this.pointer.x; this.startY = this.pointer.y; this.downAt = performance.now(); this.dragged = false;
     if (this.regrowMode) { this.paint(this.pointer, this.pointer); return; }
     if (this.world.paused) return;
-    if (e.button === 0 && e.pointerType !== 'touch' && !this.feedMode) { this.world.sendDog(this.pointer.x, this.pointer.y); this.sync(); }
+    if (e.button === 0 && e.pointerType !== 'touch') { this.world.sendDog(this.pointer.x, this.pointer.y); this.sync(); }
   };
   private move = (e: PointerEvent) => {
     if (!this.settings.hidden) return;
@@ -64,15 +64,15 @@ export class Controller {
     if (this.regrowMode) { this.paint(previous, this.pointer); return; }
     if (this.pointerId !== null && Math.hypot(this.pointer.x - this.startX, this.pointer.y - this.startY) > 6) this.dragged = true;
     if (this.world.paused) return;
-    if (this.pointerId !== null && this.button === 0 && e.pointerType !== 'touch' && !this.feedMode) this.world.sendDog(this.pointer.x, this.pointer.y);
+    if (this.pointerId !== null && this.button === 0 && e.pointerType !== 'touch') this.world.sendDog(this.pointer.x, this.pointer.y);
   };
   private up = (e: PointerEvent) => {
     if (e.pointerId !== this.pointerId) return;
     const p = this.coords(e);
     if (!this.world.paused && !this.regrowMode) {
       const touchFeed = e.pointerType === 'touch' && !this.dragged && performance.now() - this.downAt > 450;
-      if (!this.dragged && (this.button === 2 || this.feedMode || touchFeed)) {
-        this.world.addFeed(p.x, p.y); this.feedMode = false; this.toast('a little something to nibble.');
+      if (!this.dragged && (this.button === 2 || touchFeed)) {
+        this.world.addFeed(p.x, p.y); this.toast('a little something to nibble.');
       } else if (e.pointerType === 'touch' && this.button === 0 && !this.dragged) this.world.sendDog(p.x, p.y);
     }
     this.cancel(); this.sync(); this.renderer.render();
@@ -85,9 +85,8 @@ export class Controller {
       this.toast(text[key]); this.sync(); this.renderer.render();
     }
   }
-  private toggleFeed() { this.feedMode = !this.feedMode; this.regrowMode = false; this.sync(); if (this.feedMode) { this.toast('click a patch of grass to scatter feed.'); if (!this.settings.hidden) this.setSettingsOpen(false); } }
   private toggleRegrow() {
-    this.regrowMode = !this.regrowMode; this.feedMode = false; this.cancel(); this.sync();
+    this.regrowMode = !this.regrowMode; this.cancel(); this.sync();
     if (!this.settings.hidden) this.setSettingsOpen(false);
     if (this.regrowMode) { this.paint(this.pointer, this.pointer); this.toast('regrow brush on. hover to grow; space to finish.'); }
     else this.toast('regrow brush off.');
@@ -98,20 +97,24 @@ export class Controller {
     this.renderer.render();
   }
   setPaused(paused: boolean) { this.world.paused = paused; this.cancel(); this.sync(); this.renderer.render(); }
-  private persist() { try { localStorage.setItem('ascii-meadow.count.v1', String(this.world.sheep.length)); } catch { /* optional storage */ } }
+  private persist() {
+    try {
+      localStorage.setItem('ascii-meadow.count.v1', String(this.world.sheep.length));
+      localStorage.setItem('ascii-meadow.lambs.v1', String(this.world.lambs.length));
+    } catch { /* optional storage */ }
+  }
   private toast(text: string) {
     const el = document.querySelector<HTMLElement>('#toast')!; el.textContent = text; el.classList.add('show');
     clearTimeout(this.toastTimer); this.toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
   }
   sync() {
     document.querySelector('#sheep-count')!.textContent = String(this.world.sheep.length);
-    document.querySelector('#flock-caption')!.textContent = `${this.world.lambs.length} ${this.world.lambs.length === 1 ? 'lamb' : 'lambs'}`;
+    document.querySelector('#lamb-count')!.textContent = String(this.world.lambs.length);
     document.querySelector<HTMLButtonElement>('#remove-sheep')!.disabled = this.world.sheep.length === 0;
     document.querySelector<HTMLButtonElement>('#add-sheep')!.disabled = this.world.sheep.length === 80;
+    document.querySelector<HTMLButtonElement>('#remove-lamb')!.disabled = this.world.lambs.length === 0;
     const pause = document.querySelector<HTMLButtonElement>('#pause')!;
     pause.textContent = this.world.paused ? '[ resume ]' : '[ pause ]'; pause.setAttribute('aria-pressed', String(this.world.paused)); pause.setAttribute('aria-label', this.world.paused ? 'Resume meadow' : 'Pause meadow');
-    document.querySelector('#feed-button')!.setAttribute('aria-pressed', String(this.feedMode)); this.canvas.classList.toggle('feed-mode', this.feedMode);
-    document.querySelector('#regrow-button')!.setAttribute('aria-pressed', String(this.regrowMode));
     this.canvas.classList.toggle('regrow-mode', this.regrowMode);
   }
   destroy() { this.cancel(); this.abort.abort(); clearTimeout(this.toastTimer); }

@@ -110,7 +110,7 @@ test('sheep heads keep priority over overlapping wool', async ({ page }) => {
 
 test('white outlined dark faces and pronounced ears stay clear on grazed ground in every direction', async ({ page }) => {
   const result = await page.evaluate(() => {
-    const app = (window as any).__meadow, w = app.world; w.reset(1); w.paused = true; w.pasture.grass.fill(0); w.pasture.flower.fill(-1);
+    const app = (window as any).__meadow, w = app.world; w.reset(1, 0); w.paused = true; w.pasture.grass.fill(0); w.pasture.flower.fill(-1);
     const s = w.sheep[0], p = w.pasture, scale = w.scale, x = w.width * 0.5, y = w.height * 0.4;
     Object.assign(s, { x, y, phase: 0, size: 1, state: 'walking' });
     return [0, Math.PI / 2, Math.PI, -Math.PI / 2].map(heading => {
@@ -128,20 +128,31 @@ test('white outlined dark faces and pronounced ears stay clear on grazed ground 
   for (const head of result) { expect(head.eyes).toBe(2); expect(head.face).toBeGreaterThan(2); expect(head.ears).toBe(2); expect(head.rim).toBeGreaterThan(8); }
 });
 
-test('small lambs accompany the flock and their counter follows adult population changes', async ({ page }) => {
-  await openSettings(page); const before = await state(page); expect(before.lambs).toHaveLength(3);
+test('sheep and lamb counters are independent, persist, and survive reset with no adults', async ({ page }) => {
+  await openSettings(page);
+  const before = await state(page); expect(before.lambs).toHaveLength(3);
   expect(before.lambs.every((l: any) => l.size < 0.6 && before.sheep.some((s: any) => s.id === l.parentId))).toBe(true);
-  await expect(page.locator('#flock-caption')).toHaveText('3 lambs');
-  await page.getByRole('button', { name: 'Remove a sheep', exact: true }).click();
-  expect((await state(page)).lambs).toHaveLength(2); await expect(page.locator('#flock-caption')).toHaveText('2 lambs');
-  await page.getByRole('button', { name: 'Add a sheep', exact: true }).click();
-  expect((await state(page)).lambs).toHaveLength(3);
+  await expect(page.locator('#lamb-count')).toHaveText('3');
+  await page.locator('#remove-sheep').click(); expect((await state(page)).count).toBe(17); expect((await state(page)).lambs).toHaveLength(3);
+  for (let i = 0; i < 5; i++) await page.locator('#add-lamb').click();
+  await expect(page.locator('#lamb-count')).toHaveText('8'); expect((await state(page)).count).toBe(17);
+  await page.locator('#remove-lamb').click(); expect((await state(page)).lambs).toHaveLength(7);
+  await page.reload(); await openSettings(page);
+  await expect(page.locator('#sheep-count')).toHaveText('17'); await expect(page.locator('#lamb-count')).toHaveText('7');
+  for (let i = 0; i < 17; i++) await page.locator('#remove-sheep').click();
+  await expect(page.locator('#remove-sheep')).toBeDisabled(); expect((await state(page)).lambs).toHaveLength(7);
+  await page.locator('#add-lamb').click(); await page.locator('#reset').click();
+  let s = await state(page); expect(s.count).toBe(0); expect(s.lambs).toHaveLength(8); expect(s.dog.atHome).toBe(true);
+  await page.reload(); s = await state(page); expect(s.count).toBe(0); expect(s.lambs).toHaveLength(8);
+  await openSettings(page); for (let i = 0; i < 8; i++) await page.locator('#remove-lamb').click();
+  await expect(page.locator('#remove-lamb')).toBeDisabled(); expect((await state(page)).lambs).toHaveLength(0);
+  await page.locator('#add-lamb').click(); expect((await state(page)).lambs).toHaveLength(1);
 });
 
 test('colorful visitors land in the meadow, take off near the dog, and appear with the lambs', async ({ page }, info) => {
   const landed = await page.evaluate(() => {
     const app = (window as any).__meadow, w = app.world;
-    w.reset(18); w.paused = false;
+    w.reset(18, 3); w.paused = false;
     for (let i = 0; i < 1500 && !w.birds.some((b: any) => b.state === 'landed'); i++) w.step(1 / 60);
     app.controller.sync(); app.renderer.render();
     const bird = w.birds.find((b: any) => b.state === 'landed'), p = w.pasture; let colored = 0, eyeRow = Infinity, wingRow = -Infinity; const profileRows = new Set<number>();
@@ -175,7 +186,7 @@ test('uneaten turf is light green, grazed turf is dark green on charcoal, and id
   expect(result.full.family).toBe(0); expect([6, 1]).toContain(result.eaten.family);
   expect(result.full.tile).toBe(0); expect(result.eaten.tile).toBe(0); expect(result.full.level).toBeGreaterThan(result.eaten.level + 6);
   const asleep = await page.evaluate(() => {
-    const app = (window as any).__meadow, w = app.world; w.reset(18); w.paused = false; w.toggleDog();
+    const app = (window as any).__meadow, w = app.world; w.reset(18, 3); w.paused = false; w.toggleDog();
     for (let frame = 0; frame < 450; frame++) w.step(1 / 60);
     app.controller.sync(); app.renderer.render();
     let zs = 0; const p = w.pasture, d = w.dog;
@@ -228,7 +239,7 @@ test('terrain matches Pond charcoal; bare grass rests on charcoal before growing
   });
   expect(result.freshBrown).toBe(0); expect(result.ratio).toBe(0); expect(result.dots).toBeGreaterThan(0.99); expect(result.dark).toBeGreaterThan(0.92); expect(result.black).toBeGreaterThan(0.8);
   await page.evaluate(() => {
-    const app = (window as any).__meadow, w = app.world, p = w.pasture; w.reset(18); w.paused = true;
+    const app = (window as any).__meadow, w = app.world, p = w.pasture; w.reset(18, 3); w.paused = true;
     for (const s of w.sheep) { for (let i = 0; i < 10; i++) p.bite(s.x - 22 + i * 4, s.y + 10, 25, 24); }
     w.toggleDog(); Object.assign(w.dog, { x: w.width * 0.64, y: w.height * 0.6, targetX: w.width * 0.64, targetY: w.height * 0.6, heading: -2.5 });
     app.controller.sync(); app.renderer.render();
@@ -239,7 +250,7 @@ test('terrain matches Pond charcoal; bare grass rests on charcoal before growing
 test('sheep graze in loose groups and leave lasting cropped patches', async ({ page }, info) => {
   const result = await page.evaluate(() => {
     const app = (window as any).__meadow, w = app.world;
-    w.reset(18); w.paused = false;
+    w.reset(18, 3); w.paused = false;
     const spread = () => { const h = w.herdCenter(); return w.sheep.reduce((sum: number, s: any) => sum + Math.hypot(s.x - h.x, s.y - h.y), 0) / w.sheep.length; };
     const before = spread();
     for (let frame = 0; frame < 90 * 60; frame++) w.step(1 / 60);
@@ -300,7 +311,7 @@ test('regrowth gains characters and color gradually, and running dogs have tucke
 
 test('Q has a visible first frame and a subtle wave that crosses the field quickly', async ({ page }, info) => {
   const ripple = await page.evaluate(() => {
-    const app = (window as any).__meadow, w = app.world, p = w.pasture; w.reset(0); w.toggleDog();
+    const app = (window as any).__meadow, w = app.world, p = w.pasture; w.reset(0, 0); w.toggleDog();
     const x = w.width * 0.5, y = w.height * 0.4;
     Object.assign(w.dog, { x, y, targetX: x, targetY: y, arrived: true }); p.flower.fill(-1); app.renderer.render();
     const before = Array.from({ length: p.cols * p.rows }, (_, i) => JSON.stringify(app.renderer.cellAt((i % p.cols + 0.5) * p.cellW, (Math.floor(i / p.cols) + 0.5) * p.cellH)));
@@ -317,7 +328,7 @@ test('Q has a visible first frame and a subtle wave that crosses the field quick
     const immediate = measure(); w.barks[0].age = 0.2; app.renderer.render(); const traveling = measure();
     w.barks[0].age = 0.7; app.renderer.render(); const finished = measure();
     const result = { immediate, traveling, finished, scale: w.scale, cells: before.length, width: w.width, height: w.height };
-    w.reset(18); w.toggleDog(); Object.assign(w.dog, { x, y, targetX: x, targetY: y, arrived: true });
+    w.reset(18, 3); w.toggleDog(); Object.assign(w.dog, { x, y, targetX: x, targetY: y, arrived: true });
     app.controller.cast('q'); for (let i = 0; i < 7; i++) w.step(1 / 60);
     app.controller.sync(); app.renderer.render(); w.paused = true;
     return result;
@@ -335,7 +346,7 @@ test('Q has a visible first frame and a subtle wave that crosses the field quick
 test('the dog starts inside a thick posted pen, opens its mouth to bark, and birds perch on posts', async ({ page }, info) => {
   const result = await page.evaluate(() => {
     const app = (window as any).__meadow, w = app.world, p = w.pasture, r = app.renderer;
-    w.reset(0); w.toggleDog(); w.paused = true; r.render();
+    w.reset(0, 0); w.toggleDog(); w.paused = true; r.render();
     const scan = () => {
       let eyes = 0, nose = 0; const letters: { x: number; glyph: string }[] = [];
       for (let row = 0; row < p.rows; row++) for (let col = 0; col < p.cols; col++) {
@@ -410,7 +421,7 @@ test('the compact pen has a working left gate for release and recall', async ({ 
 test('wooden rails stay brown and landed birds show two bright centered legs in both directions', async ({ page }, info) => {
   const result = await page.evaluate(() => {
     const app = (window as any).__meadow, w = app.world, r = app.renderer, p = w.pasture;
-    w.reset(0); w.toggleDog(); w.paused = true; r.render();
+    w.reset(0, 0); w.toggleDog(); w.paused = true; r.render();
     const rails = w.fence.rails.map((rail: any) => r.cellAt(rail.a.x + (rail.b.x - rail.a.x) / 3, rail.a.y + (rail.b.y - rail.a.y) / 3).family);
     const rightRailRows: { family: number; brown: number }[] = [], d = r.canvas.width / w.width, ctx = r.canvas.getContext('2d');
     const col = Math.floor(w.pen.right / p.cellW);
@@ -458,22 +469,39 @@ test('only an ASCII settings button remains on the field and its panel owns ever
   const first = await state(page); await toggle.focus(); await page.keyboard.press('Space');
   await expect(panel).toBeVisible(); await expect(toggle).toHaveAttribute('aria-expanded', 'true'); expect((await state(page)).regrowMode).toBe(false);
   await expect(page.getByLabel('How to play')).toBeVisible();
-  for (const id of ['add-sheep', 'remove-sheep', 'feed-button', 'regrow-button', 'pause', 'reset'])
+  for (const id of ['add-sheep', 'remove-sheep', 'add-lamb', 'remove-lamb', 'regrow-button', 'pause', 'reset'])
     await expect(panel.locator(`#${id}`)).toBeAttached();
   await expect(panel.locator('[data-ability], #dog-button, #settings-close, h1')).toHaveCount(0);
   await expect(panel.getByText('F, then click', { exact: true })).toHaveCount(0);
-  await expect(panel.locator('.action-grid button')).toHaveCount(4);
+  await expect(panel.locator('.action-grid button')).toHaveCount(3);
   const box = await panel.boundingBox(); expect(box!.width).toBeLessThanOrEqual(285); expect(box!.height).toBeLessThan(410); expect(box!.x).toBeGreaterThanOrEqual(8); expect(box!.y + box!.height).toBeLessThanOrEqual(first.height - 8);
   await page.screenshot({ path: `docs/${info.project.name}-settings.png` });
   await toggle.click(); await expect(panel).toBeHidden(); await expect(toggle).toBeFocused();
   await page.keyboard.press('h'); await expect(panel).toBeVisible();
   await page.mouse.click(first.width * 0.1, first.height * 0.3); await expect(panel).toBeHidden();
   const dismissed = await state(page); expect(dismissed.dog.targetX).toBe(first.dog.targetX); expect(dismissed.dog.targetY).toBe(first.dog.targetY); expect(dismissed.feed).toHaveLength(0);
-  await openSettings(page); await page.locator('#feed-button').click(); await expect(panel).toBeHidden(); expect((await state(page)).feedMode).toBe(true);
-  await page.mouse.click(first.width * 0.35, first.height * 0.36); expect((await state(page)).feed).toHaveLength(1);
+  await expect(page.locator('#feed-button')).toHaveCount(0);
+  await openSettings(page); await page.locator('#pause').click();
+  await page.evaluate(() => {
+    const p = (window as any).__meadow.world.pasture;
+    p.grass.fill(0.1); p.cropped.fill(1); p.recoverIn.fill(110); p.trampled.fill(0.8);
+  });
+  const beforeRegrow = await state(page);
+  await page.getByRole('button', { name: 'Regrow all grass', exact: true }).click();
+  const restored = await state(page);
+  expect(restored.grass).toBe(restored.cols * restored.rows); expect(restored.regrowMode).toBe(false);
+  expect(restored.time).toBe(beforeRegrow.time); expect(restored.paused).toBe(true);
+  expect(restored.sheep).toEqual(beforeRegrow.sheep); expect(restored.lambs).toEqual(beforeRegrow.lambs);
+  expect(restored.dog).toEqual(beforeRegrow.dog); expect(restored.feed).toEqual(beforeRegrow.feed);
+  expect(await page.evaluate(() => {
+    const p = (window as any).__meadow.world.pasture;
+    return p.cropped.every((v: number) => v === 0) && p.recoverIn.every((v: number) => v === 0) && p.trampled.every((v: number) => v === 0);
+  })).toBe(true);
+  await expect(page.locator('#reset')).toHaveText('[ reset ]');
+  await expect(page.locator('#toast')).toHaveClass(/sr-only/);
+  await expect(page.locator('#toast')).toHaveText('all grass restored.');
+  await page.keyboard.press('Escape'); await expect(panel).toBeHidden();
   await expect(page.locator('#toast')).toBeHidden();
-  await openSettings(page); await page.locator('#regrow-button').click(); await expect(panel).toBeHidden(); expect((await state(page)).regrowMode).toBe(true);
-  await page.keyboard.press('Escape'); expect((await state(page)).regrowMode).toBe(false);
-  await page.keyboard.press('p'); expect((await state(page)).paused).toBe(true);
+  await page.keyboard.press('p'); expect((await state(page)).paused).toBe(false);
   expect((await page.locator('body').innerText()).trim()).toBe('[*]');
 });

@@ -42,8 +42,9 @@ export class World {
   panicLeft = 0; panicX = 0; panicY = 0;
   gateOpen = 0;
   private random = seeded(74821);
+  private nextLambId = 100000;
   private fenceCache?: { width: number; height: number; value: Fence };
-  constructor(public width: number, public height: number, count = 18) { this.pasture = new Pasture(width, height); this.reset(count); }
+  constructor(public width: number, public height: number, count = 18, lambCount = Math.floor(count / 6)) { this.pasture = new Pasture(width, height); this.reset(count, lambCount); }
   get birds() { return this.birdLife.birds; }
   get animals(): Sheep[] { return [...this.sheep, ...this.lambs]; }
   get scale() { return this.width < 600 ? 0.79 : 1; }
@@ -101,11 +102,12 @@ export class World {
       .map(q => this.clampTo(q.x, q.y, this.dogBounds)).filter(safe);
     return candidates.sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y))[0] ?? this.home;
   }
-  reset(count = this.sheep.length) {
+  reset(count = this.sheep.length, lambCount = this.lambs.length) {
     this.random = seeded(74821); this.sheep.length = 0; this.lambs.length = 0; this.birdLife.reset(); this.dog = null; this.feed.length = 0;
-    this.time = 0; this.eaten = 0; this.nextId = 0; this.nextFeed = 0; this.barks.length = 0; this.marker = null; this.panicLeft = 0; this.gateOpen = 0;
+    this.time = 0; this.eaten = 0; this.nextId = 0; this.nextLambId = 100000; this.nextFeed = 0; this.barks.length = 0; this.marker = null; this.panicLeft = 0; this.gateOpen = 0;
     this.pasture.resize(this.width, this.height, false);
     for (let i = 0; i < count; i++) this.addSheep(true);
+    for (let i = 0; i < lambCount; i++) this.addLamb();
   }
   addSheep(initial = false) {
     if (this.sheep.length >= 80) return false;
@@ -113,33 +115,45 @@ export class World {
     const point = initial ? this.clampPoint(this.width * [0.36, 0.68, 0.48][group] + Math.cos(a) * this.width * 0.19 * rand(), this.height * [0.38, 0.47, 0.67][group] + Math.sin(a) * this.height * 0.16 * rand()) :
       this.clampPoint(this.width * (0.18 + rand() * 0.64), this.height * (0.28 + rand() * 0.43));
     for (let attempt = 0; attempt < 70; attempt++) {
-      if (!this.sheep.some(s => Math.hypot(s.x - point.x, s.y - point.y) < 62 * this.scale) && Math.hypot(point.x - this.home.x, point.y - this.home.y) > 75 * this.scale) break;
+      if (!this.animals.some(s => Math.hypot(s.x - point.x, s.y - point.y) < 62 * this.scale) && Math.hypot(point.x - this.home.x, point.y - this.home.y) > 75 * this.scale) break;
       Object.assign(point, this.clampPoint(this.width * (0.1 + rand() * 0.8), this.height * (0.2 + rand() * 0.57)));
     }
     this.sheep.push({ id, ...point, vx: 0, vy: 0, heading: rand() * TAU, goalX: point.x, goalY: point.y,
       timer: 8 + rand() * 12, hunger: 0.3 + rand() * 0.5, state: 'grazing', phase: rand() * TAU,
       companions: [], socialTimer: 0, barkLeft: 0, barkGoalX: point.x, barkGoalY: point.y,
       size: 0.87 + rand() * 0.25, speed: 7 + rand() * 3.5, courage: 0.8 + rand() * 0.4, wool: rand(), ate: 0 });
-    this.syncLambs();
+    this.reparentLambs();
     return true;
   }
-  private syncLambs() {
-    this.lambs.length = Math.min(this.lambs.length, Math.floor(this.sheep.length / 6));
-    for (let i = 0; i < Math.floor(this.sheep.length / 6); i++) {
-      const parent = this.sheep[i * 6 + 5];
-      if (this.lambs[i]) { this.lambs[i].parentId = parent.id; continue; }
-      let point = this.clampPoint(parent.x, parent.y), best = -Infinity;
-      for (let j = 0; j < 16; j++) {
-        const a = parent.heading + j * TAU / 16, p = this.clampPoint(parent.x + Math.cos(a) * 48 * this.scale, parent.y + Math.sin(a) * 48 * this.scale);
-        const clearance = Math.min(...this.animals.map(s => Math.hypot(s.x - p.x, s.y - p.y)));
-        if (clearance > best) { point = p; best = clearance; }
-      }
-      this.lambs.push({ ...parent, ...point, id: 100000 + parent.id, parentId: parent.id, isLamb: true,
-        size: 0.52 + hash3(parent.id, 2, 881) * 0.07, speed: 8.5, phase: parent.phase + 1.3,
-        vx: 0, vy: 0, goalX: point.x, goalY: point.y, companions: [], socialTimer: Infinity, ate: 0 });
+  addLamb() {
+    const id = this.nextLambId++, parent = this.sheep[(this.lambs.length + 5) % this.sheep.length];
+    const origin = parent ?? this.clampPoint(this.width * (0.18 + this.random() * 0.64), this.height * (0.28 + this.random() * 0.43));
+    let point = this.clampPoint(origin.x, origin.y), best = -Infinity;
+    const animals = this.animals;
+    for (let j = 0; j < 48; j++) {
+      const a = (parent?.heading ?? 0) + j * TAU / 16, radius = (48 + Math.floor(j / 16) * 28) * this.scale;
+      const p = this.clampPoint(origin.x + Math.cos(a) * radius, origin.y + Math.sin(a) * radius);
+      const clearance = animals.reduce((closest, s) => Math.min(closest, Math.hypot(s.x - p.x, s.y - p.y)), Infinity);
+      if (clearance > best) { point = p; best = clearance; }
+      if (clearance >= 44 * this.scale) break;
+    }
+    this.lambs.push({ id, ...point, parentId: parent?.id, isLamb: true, heading: parent?.heading ?? this.random() * TAU,
+      size: 0.52 + hash3(id, 2, 881) * 0.07, speed: 8.5, phase: (parent?.phase ?? this.random() * TAU) + 1.3,
+      vx: 0, vy: 0, goalX: point.x, goalY: point.y, companions: [], socialTimer: Infinity, ate: 0,
+      timer: 8 + this.random() * 12, hunger: 0.3, state: 'grazing', courage: 0.9, wool: hash3(id, 3, 881),
+      barkLeft: 0, barkGoalX: point.x, barkGoalY: point.y });
+    return true;
+  }
+  private reparentLambs() {
+    for (const lamb of this.lambs) {
+      if (this.sheep.some(s => s.id === lamb.parentId)) continue;
+      let parent: Sheep | undefined, nearest = Infinity;
+      for (const sheep of this.sheep) { const d = Math.hypot(sheep.x - lamb.x, sheep.y - lamb.y); if (d < nearest) { parent = sheep; nearest = d; } }
+      lamb.parentId = parent?.id;
     }
   }
-  removeSheep() { const removed = this.sheep.pop() !== undefined; this.syncLambs(); return removed; }
+  removeSheep() { const removed = this.sheep.pop() !== undefined; this.reparentLambs(); return removed; }
+  removeLamb() { return this.lambs.pop() !== undefined; }
   toggleDog() {
     if (this.dog) { this.dog = null; return false; }
     const p = { x: this.home.x, y: this.home.y };
@@ -162,7 +176,7 @@ export class World {
     const lane = this.dogBounds, pad = 78 * this.scale;
     let left = Infinity, right = -Infinity, top = Infinity, bottom = -Infinity;
     for (const s of this.animals) { left = Math.min(left, s.x); right = Math.max(right, s.x); top = Math.min(top, s.y); bottom = Math.max(bottom, s.y); }
-    if (!this.sheep.length) { left = this.width * 0.5 - 45; right = this.width * 0.5 + 45; top = this.height * 0.45 - 40; bottom = this.height * 0.45 + 40; }
+    if (!this.animals.length) { left = this.width * 0.5 - 45; right = this.width * 0.5 + 45; top = this.height * 0.45 - 40; bottom = this.height * 0.45 + 40; }
     return { left: Math.max(lane.left, left - pad), right: Math.min(lane.right, right + pad), top: Math.max(lane.top, top - pad), bottom: Math.min(lane.bottom, bottom + pad) };
   }
   flockCenter() {
@@ -171,7 +185,7 @@ export class World {
     return { x, y, radius: radius + 78 * this.scale };
   }
   orbitRoute(): Point[] {
-    const points = this.sheep.length ? this.animals : [{ x: this.width * 0.5, y: this.height * 0.45 }];
+    const animals = this.animals, points = animals.length ? animals : [{ x: this.width * 0.5, y: this.height * 0.45 }];
     const path = roundedEnvelope(points, 78 * this.scale).map(p => { const q = this.outsidePen(p, 64 * this.scale); return this.dogPoint(q.x, q.y); });
     const route: Point[] = [];
     for (let i = 0; i < path.length; i++) {
@@ -237,8 +251,9 @@ export class World {
   /** Aggregate position for diagnostics; grazing uses only local companions. */
   herdCenter() {
     let x = 0, y = 0;
-    for (const s of this.sheep) { x += s.x; y += s.y; }
-    const n = this.sheep.length, b = this.bounds;
+    const animals = this.animals;
+    for (const s of animals) { x += s.x; y += s.y; }
+    const n = animals.length, b = this.bounds;
     return { x: n ? x / n : this.width / 2, y: n ? y / n : this.height / 2,
       radius: Math.max(50 * this.scale, Math.min(45 * Math.sqrt(n) * this.scale, Math.min(b.right - b.left, b.bottom - b.top) * 0.4)) };
   }
@@ -503,7 +518,7 @@ export class World {
       if (hd < 70 * scale) { desiredX += hx / hd * 25 * scale; desiredY += hy / hd * 25 * scale; }
       if (driving && !barking) {
         const dx = herd.x - s.x, dy = herd.y - s.y, distance = Math.hypot(dx, dy);
-        const radius = Math.max(75 * scale, 43 * Math.sqrt(this.sheep.length) * scale);
+        const radius = Math.max(75 * scale, 43 * Math.sqrt(animals.length) * scale);
         if (distance > radius * 0.85) {
           const pull = Math.min(20 * scale, 5 * scale + (distance - radius * 0.85) * 0.065);
           desiredX += dx / (distance || 1) * pull; desiredY += dy / (distance || 1) * pull;

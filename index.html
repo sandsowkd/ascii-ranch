@@ -14,14 +14,14 @@
   <button id="settings-toggle" aria-label="Meadow settings" aria-expanded="false" aria-controls="settings-panel"><span aria-hidden="true">[*]</span></button>
   <section id="settings-panel" role="dialog" aria-label="Meadow controls" tabindex="-1" hidden>
     <section class="flock-controls" aria-label="Flock size">
-      <div class="flock-heading"><h2>flock size</h2><span id="flock-caption">3 lambs</span></div>
-      <div class="counter-row"><button id="remove-sheep" aria-label="Remove a sheep">[-]</button><span class="sheep-count"><output id="sheep-count">18</output> sheep</span><button id="add-sheep" aria-label="Add a sheep">[+]</button></div>
+      <h2>flock size</h2>
+      <div class="counter-row"><span class="animal-label">sheep</span><button id="remove-sheep" aria-label="Remove a sheep">[-]</button><output id="sheep-count" aria-label="Sheep count">18</output><button id="add-sheep" aria-label="Add a sheep">[+]</button></div>
+      <div class="counter-row"><span class="animal-label">lambs</span><button id="remove-lamb" aria-label="Remove a lamb">[-]</button><output id="lamb-count" aria-label="Lamb count">3</output><button id="add-lamb" aria-label="Add a lamb">[+]</button></div>
     </section>
     <section class="settings-section action-grid" aria-label="Meadow tools">
-      <button id="feed-button" aria-label="Place feed" aria-pressed="false">[ feed ]</button>
-      <button id="regrow-button" aria-label="Regrow grass brush" aria-pressed="false">[ grow ]</button>
       <button id="pause" aria-label="Pause meadow" aria-pressed="false">[ pause ]</button>
-      <button id="reset" aria-label="Start a fresh meadow">[ start again ]</button>
+      <button id="reset" aria-label="Reset meadow">[ reset ]</button>
+      <button id="regrow-button" aria-label="Regrow all grass" title="Restore all grass instantly">[ regrow ]</button>
     </section>
     <section id="help" class="settings-section" aria-label="How to play">
       <h2>how to play</h2>

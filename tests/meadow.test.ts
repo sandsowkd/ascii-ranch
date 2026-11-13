@@ -22,18 +22,34 @@ function expectPenClear(w: World) {
     expect(Math.hypot(d.x - o.x, d.y - o.y)).toBeGreaterThanOrEqual(o.radius - 0.1);
 }
 describe('lambs and visiting birds', () => {
-  it('adds one small lamb per six adults and maintains that ratio through population changes', () => {
-    const w = new World(1200, 900, 5);
-    expect(w.lambs).toHaveLength(0); w.addSheep(); expect(w.lambs).toHaveLength(1);
-    w.reset(18); expect(w.sheep).toHaveLength(18); expect(w.lambs).toHaveLength(3);
+  it('keeps sheep and lamb populations independent through adding, removing, and reset', () => {
+    const w = new World(1200, 900, 5, 3);
+    w.addSheep(); expect(w.sheep).toHaveLength(6); expect(w.lambs).toHaveLength(3);
+    w.addLamb(); w.addLamb(); expect(w.lambs).toHaveLength(5); expect(w.sheep).toHaveLength(6);
     for (const lamb of w.lambs) {
       expect(lamb.size).toBeLessThan(0.6); expect(lamb.isLamb).toBe(true);
       const parent = w.sheep.find(s => s.id === lamb.parentId)!;
-      expect(Math.hypot(lamb.x - parent.x, lamb.y - parent.y)).toBeLessThanOrEqual(49);
+      expect(parent).toBeDefined();
     }
-    w.removeSheep(); expect(w.lambs).toHaveLength(2);
-    w.reset(80); expect(w.lambs).toHaveLength(13); expect(w.addSheep()).toBe(false);
-    w.reset(0); expect(w.animals).toHaveLength(0);
+    w.removeSheep(); expect(w.lambs).toHaveLength(5); expect(w.lambs.every(l => w.sheep.some(s => s.id === l.parentId))).toBe(true);
+    w.removeLamb(); expect(w.lambs).toHaveLength(4); expect(w.sheep).toHaveLength(5);
+    const ids = new Set(w.animals.map(a => a.id)); expect(ids.size).toBe(w.animals.length);
+    w.reset(); expect(w.sheep).toHaveLength(5); expect(w.lambs).toHaveLength(4);
+    w.reset(80, 0); expect(w.lambs).toHaveLength(0); expect(w.addSheep()).toBe(false);
+    w.reset(0, 0); expect(w.animals).toHaveLength(0); expect(w.removeSheep()).toBe(false); expect(w.removeLamb()).toBe(false);
+  });
+  it('supports lamb-only flocks, herds them, and reconnects families when adults return', () => {
+    const w = new World(1200, 900, 0, 9);
+    expect(w.lambs).toHaveLength(9); expect(w.lambs.every(l => l.parentId === undefined)).toBe(true);
+    advance(w, 20); expect(w.eaten).toBeGreaterThan(0);
+    expect(w.lambs.every(l => Number.isFinite(l.x + l.y + l.heading))).toBe(true);
+    const b = w.orbitOutline(); expect(w.lambs.every(l => l.x > b.left && l.x < b.right && l.y > b.top && l.y < b.bottom)).toBe(true);
+    w.cast('w'); expect(w.dog!.orbitPath.length).toBeGreaterThan(20); advance(w, 3);
+    w.addSheep(); expect(w.lambs.every(l => l.parentId === w.sheep[0].id)).toBe(true);
+    w.removeSheep(); expect(w.lambs).toHaveLength(9); expect(w.lambs.every(l => l.parentId === undefined)).toBe(true);
+    w.addLamb(); expect(w.lambs).toHaveLength(10);
+    w.reset(); expect(w.sheep).toHaveLength(0); expect(w.lambs).toHaveLength(10);
+    expect(new Set(w.animals.map(a => a.id)).size).toBe(10);
   });
   it('a separated lamb returns toward its adult and responds to the sheepdog', () => {
     const w = new World(1600, 1000, 6), lamb = w.lambs[0], parent = w.sheep.find(s => s.id === lamb.parentId)!;
@@ -195,6 +211,17 @@ describe('the living pasture', () => {
     for (let k = 0; k < 1200; k++) p.step(0.1);
     expect(p.grass[i]).toBeGreaterThan(0.16); expect(p.grass[i]).toBeLessThan(0.18); expect(p.grass[i]).toBeLessThanOrEqual(p.capacity[i]);
     expect(p.trampled[i]).toBeLessThan(tread * 0.01);
+  });
+  it('restores every patch instantly without resetting the paused world or its residents', () => {
+    const w = new World(900, 700, 4, 7), p = w.pasture;
+    advance(w, 4); w.toggleDog(); w.addFeed(250, 300); w.paused = true;
+    p.grass.fill(0.2); p.cropped.fill(1); p.recoverIn.fill(110); p.trampled.fill(0.8);
+    const before = { time: w.time, eaten: w.eaten, animals: structuredClone(w.animals), dog: structuredClone(w.dog), feed: structuredClone(w.feed) };
+    p.regrowAll();
+    expect(p.grass).toEqual(p.capacity); expect(p.cropped.every(v => v === 0)).toBe(true);
+    expect(p.recoverIn.every(v => v === 0)).toBe(true); expect(p.trampled.every(v => v === 0)).toBe(true);
+    expect(w.paused).toBe(true); expect(w.time).toBe(before.time); expect(w.eaten).toBe(before.eaten);
+    expect(w.animals).toEqual(before.animals); expect(w.dog).toEqual(before.dog); expect(w.feed).toEqual(before.feed);
   });
   it('keeps nibbled ground cropped for minutes, preserves it on resize, and lets the brush restore it', () => {
     const p = new Pasture(900, 700), i = p.index(400, 300);

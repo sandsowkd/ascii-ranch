@@ -70,6 +70,10 @@ export class Pasture {
       }
     }
   }
+  regrowAll() {
+    this.grass.set(this.capacity); this.cropped.fill(0); this.recoverIn.fill(0); this.trampled.fill(0);
+    this.growthClock = 0;
+  }
   tread(x: number, y: number, amount: number, radius = 23) {
     for (let r = Math.max(0, Math.floor((y - radius) / this.cellH)); r <= Math.min(this.rows - 1, Math.floor((y + radius) / this.cellH)); r++) {
       for (let c = Math.max(0, Math.floor((x - radius) / this.cellW)); c <= Math.min(this.cols - 1, Math.floor((x + radius) / this.cellW)); c++) {
