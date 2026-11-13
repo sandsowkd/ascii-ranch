@@ -1,0 +1,10 @@
+{
+  "viewport": [
+    412,
+    839
+  ],
+  "sheep": 18,
+  "cells": 7245,
+  "measuredFPS": 60,
+  "note": "Local headless Chromium sample; mobile uses device emulation."
+}
