@@ -1,5 +1,6 @@
 import { hash3 } from '../vendor/pond-math';
 import type { Pasture } from './Pasture';
+import { barkTouches, type Bark } from './bark';
 
 export interface Bird {
   id: number; x: number; y: number; heading: number; phase: number;
@@ -17,7 +18,7 @@ export class BirdLife {
   resize(sx: number, sy: number) {
     for (const b of this.birds) { b.x *= sx; b.y *= sy; b.landingX *= sx; b.landingY *= sy; b.exitX *= sx; b.exitY *= sy; }
   }
-  step(dt: number, width: number, height: number, pasture: Pasture, animals: Position[], dog: Position | null, barks: (Position & { age: number })[]) {
+  step(dt: number, width: number, height: number, pasture: Pasture, animals: Position[], dog: Position | null, barks: Bark[]) {
     this.untilVisit -= dt;
     if (this.untilVisit <= 0 && this.birds.length < 3) {
       const id = this.nextId++, h = (n: number) => hash3(id, n, 781);
@@ -39,7 +40,7 @@ export class BirdLife {
       b.age += dt;
       if (b.state === 'landed') {
         const scared = dog && Math.hypot(dog.x - b.x, dog.y - b.y) < 145 ||
-          barks.some(q => q.age < 0.15 && Math.hypot(q.x - b.x, q.y - b.y) < 310);
+          barks.some(q => barkTouches(q, b.x, b.y, 10, dt));
         if (b.age > b.restFor || scared) { b.state = 'departing'; b.age = 0; }
         else continue;
       }

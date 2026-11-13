@@ -4,6 +4,7 @@ import { grassAppearance } from '../src/engine/grass';
 import { nearestOnRoute, perimeter } from '../src/simulation/route';
 import { Pasture } from '../src/simulation/Pasture';
 import { BirdLife } from '../src/simulation/Birds';
+import { createBark } from '../src/simulation/bark';
 
 function advance(world: World, seconds: number) { for (let i = 0; i < seconds * 60; i++) world.step(1 / 60); }
 describe('lambs and visiting birds', () => {
@@ -25,7 +26,7 @@ describe('lambs and visiting birds', () => {
     Object.assign(parent, { x: 900, y: 450, timer: 100 }); Object.assign(lamb, { x: 600, y: 450, timer: 100 });
     advance(w, 10); expect(Math.hypot(lamb.x - parent.x, lamb.y - parent.y)).toBeLessThan(230);
     w.toggleDog(); Object.assign(w.dog!, { x: lamb.x - 35, y: lamb.y, targetX: lamb.x - 35, targetY: lamb.y, arrived: true });
-    w.step(1 / 60); expect(lamb.state).toBe('startled'); w.cast('q'); expect(lamb.barkLeft).toBeGreaterThan(2);
+    w.step(1 / 60); expect(lamb.state).toBe('startled'); w.cast('q'); expect(lamb.barkLeft).toBe(0); w.step(1 / 60); expect(lamb.barkLeft).toBeGreaterThan(2);
   });
   it('pauses and resizes both generations without losing their family links', () => {
     const w = new World(1200, 900, 18), lamb = w.lambs[0], before = { x: lamb.x, y: lamb.y, parent: lamb.parentId };
@@ -51,7 +52,8 @@ describe('lambs and visiting birds', () => {
     const bird = visitors.birds[0]; Object.assign(bird, { state: 'landed', age: 0 });
     visitors.step(1 / 30, 1200, 900, p, [], { x: bird.x + 80, y: bird.y }, []);
     expect(bird.state).toBe('departing'); Object.assign(bird, { state: 'landed', age: 0 });
-    visitors.step(1 / 30, 1200, 900, p, [], null, [{ x: bird.x + 200, y: bird.y, age: 0 }]);
+    Object.assign(bird, { x: 320, y: 400 }); const wave = createBark(120, 400, 1200, 900, 1); wave.age = 0.09;
+    visitors.step(1 / 30, 1200, 900, p, [], null, [wave]);
     expect(bird.state).toBe('departing'); visitors.reset(); expect(visitors.birds).toHaveLength(0);
   });
 });
@@ -181,13 +183,30 @@ describe('a controllable sheepdog', () => {
     advance(w, 7.2); expect(w.dog!.sleeping).toBe(true);
     w.sendDog(600, 300); expect(w.dog!.sleeping).toBe(false);
   });
-  it('Q moves nearby sheep only a couple of body lengths and leaves distant sheep alone', () => {
+  it('Q shows its wave before sheep react, reaches near then far sheep, and keeps the escape short', () => {
     const w = new World(1800, 1000, 2); w.toggleDog();
     Object.assign(w.dog!, { x: 500, y: 400, targetX: 500, targetY: 400 });
     Object.assign(w.sheep[0], { x: 650, y: 400, timer: 100 }); Object.assign(w.sheep[1], { x: 1300, y: 400, timer: 100 });
-    w.cast('q'); expect(w.sheep[0].barkLeft).toBeGreaterThan(2); expect(w.sheep[1].barkLeft).toBe(0);
-    advance(w, 2.5); expect(w.sheep[0].x - 650).toBeGreaterThan(65); expect(w.sheep[0].x - 650).toBeLessThan(115);
-    expect(w.sheep[1].state).not.toBe('startled'); expect(w.panicLeft).toBe(0);
+    w.cast('q'); expect(w.barks).toHaveLength(1); expect(w.barks[0].age).toBe(0);
+    expect(w.sheep.every(s => s.barkLeft === 0 && s.state === 'grazing')).toBe(true);
+    advance(w, 0.05); expect(w.sheep[0].barkLeft).toBeGreaterThan(2); expect(w.sheep[1].barkLeft).toBe(0);
+    expect(w.sheep[1].state).toBe('grazing'); const goal = w.sheep[0].barkGoalX;
+    advance(w, 0.35); expect(w.sheep[1].barkLeft).toBeGreaterThan(2); expect(w.sheep[1].state).toBe('startled');
+    expect(w.sheep[0].barkGoalX).toBe(goal); // Each wave nudges a sheep just once.
+    advance(w, 2.5);
+    for (const [i, start] of [650, 1300].entries()) {
+      expect(w.sheep[i].x - start).toBeGreaterThan(65); expect(w.sheep[i].x - start).toBeLessThan(115);
+    }
+    expect(w.barks).toHaveLength(0); expect(w.panicLeft).toBe(0);
+  });
+  it('a moving dog leaves its bark wave at the original position and immediate recasts stay independent', () => {
+    const w = new World(1600, 900, 1); w.toggleDog();
+    Object.assign(w.dog!, { x: 300, y: 400, targetX: 300, targetY: 400 });
+    Object.assign(w.sheep[0], { x: 600, y: 400, timer: 100 }); w.cast('q');
+    w.sendDog(200, 200); advance(w, 0.18);
+    expect(w.barks[0].x).toBe(300); expect(w.barks[0].y).toBe(400);
+    expect(w.barks[0].hitIds.has(w.sheep[0].id)).toBe(true);
+    w.cast('q'); expect(w.barks).toHaveLength(2); expect(w.barks[1].hitIds.size).toBe(0);
   });
   it('normal walking and food-following remain much slower than a bark escape', () => {
     const w = new World(1200, 900, 1), s = w.sheep[0];

@@ -290,19 +290,34 @@ test('regrowth gains characters and color gradually, and running dogs have visib
   await page.screenshot({ path: `docs/${info.project.name}-regrowth.png` });
 });
 
-test('bark uses one small fading ripple near the dog', async ({ page }) => {
+test('Q has a visible first frame and a subtle wave that crosses the field quickly', async ({ page }, info) => {
   const ripple = await page.evaluate(() => {
-    const app = (window as any).__meadow, w = app.world, p = w.pasture; w.reset(0); w.paused = true;
-    const x = w.width * 0.5, y = w.height * 0.4; p.flower.fill(-1); app.renderer.render();
+    const app = (window as any).__meadow, w = app.world, p = w.pasture; w.reset(0); w.toggleDog();
+    const x = w.width * 0.5, y = w.height * 0.4;
+    Object.assign(w.dog, { x, y, targetX: x, targetY: y, arrived: true }); p.flower.fill(-1); app.renderer.render();
     const before = Array.from({ length: p.cols * p.rows }, (_, i) => JSON.stringify(app.renderer.cellAt((i % p.cols + 0.5) * p.cellW, (Math.floor(i / p.cols) + 0.5) * p.cellH)));
-    w.barks.push({ x, y, age: 0.5 }); app.renderer.render(); let changed = 0, farthest = 0;
-    for (let i = 0; i < before.length; i++) {
-      const px = (i % p.cols + 0.5) * p.cellW, py = (Math.floor(i / p.cols) + 0.5) * p.cellH;
-      if (before[i] !== JSON.stringify(app.renderer.cellAt(px, py))) { changed++; farthest = Math.max(farthest, Math.hypot(px - x, py - y)); }
-    }
-    w.barks[0].age = 1.3; app.renderer.render(); let remaining = 0;
-    for (let i = 0; i < before.length; i++) if (before[i] !== JSON.stringify(app.renderer.cellAt((i % p.cols + 0.5) * p.cellW, (Math.floor(i / p.cols) + 0.5) * p.cellH))) remaining++;
-    return { changed, farthest: farthest / w.scale, remaining };
+    const measure = () => {
+      let changed = 0, nearest = Infinity, farthest = 0, brightest = 0;
+      for (let i = 0; i < before.length; i++) {
+        const px = (i % p.cols + 0.5) * p.cellW, py = (Math.floor(i / p.cols) + 0.5) * p.cellH, cell = app.renderer.cellAt(px, py);
+        if (before[i] !== JSON.stringify(cell)) { changed++; const distance = Math.hypot(px - x, py - y); nearest = Math.min(nearest, distance); farthest = Math.max(farthest, distance); brightest = Math.max(brightest, cell.level); }
+      }
+      return { changed, nearest, farthest, brightest };
+    };
+    app.controller.cast('q'); // Includes the synchronous first-frame render used by the Q key.
+    const immediate = measure(); w.barks[0].age = 0.2; app.renderer.render(); const traveling = measure();
+    w.barks[0].age = 0.7; app.renderer.render(); const finished = measure();
+    const result = { immediate, traveling, finished, scale: w.scale, cells: before.length, width: w.width, height: w.height };
+    w.reset(18); w.toggleDog(); Object.assign(w.dog, { x, y, targetX: x, targetY: y, arrived: true });
+    app.controller.cast('q'); for (let i = 0; i < 7; i++) w.step(1 / 60);
+    app.controller.sync(); app.renderer.render(); w.paused = true;
+    return result;
   });
-  expect(ripple.changed).toBeGreaterThan(4); expect(ripple.changed).toBeLessThan(180); expect(ripple.farthest).toBeLessThan(90); expect(ripple.remaining).toBe(0);
+  expect(ripple.immediate.changed).toBeGreaterThan(4); expect(ripple.immediate.nearest).toBeGreaterThan(35 * ripple.scale);
+  expect(ripple.immediate.farthest).toBeLessThan(53 * ripple.scale);
+  expect(ripple.traveling.farthest).toBeGreaterThan(Math.min(ripple.width, ripple.height) * 0.35);
+  expect(ripple.traveling.farthest - ripple.traveling.nearest).toBeLessThan(10);
+  expect(ripple.traveling.changed).toBeLessThan(ripple.cells * 0.03); expect(ripple.traveling.brightest).toBeLessThanOrEqual(10);
+  expect(ripple.finished.changed).toBe(0);
+  await page.screenshot({ path: `docs/${info.project.name}-bark.png` });
 });

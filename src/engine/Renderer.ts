@@ -1,6 +1,7 @@
 import { clamp, hash3, lineGlyph } from '../vendor/pond-math';
 import { DENSITY_GLYPHS, grassAppearance } from './grass';
 import type { Bird } from '../simulation/Birds';
+import { BARK_TRAVEL_TIME, BARK_FADE_TIME, BARK_LIFETIME, barkRadius, type Bark } from '../simulation/bark';
 import type { Sheep, World } from '../simulation/World';
 
 /** Pond's density ramp, local ink and cached font, adapted into a living pasture.
@@ -207,15 +208,17 @@ export class Renderer {
       }
     }
   }
-  private barkRipple(x: number, y: number, age: number) {
-    if (age >= 1.2) return;
-    const p = this.world.pasture, t = age / 1.2, radius = (14 + t * 72) * this.world.scale, band = p.cellW * 0.65;
+  private barkRipple(bark: Bark) {
+    const { x, y, age } = bark;
+    if (age >= BARK_LIFETIME) return;
+    const p = this.world.pasture, t = Math.min(1, age / BARK_TRAVEL_TIME), radius = barkRadius(bark), band = p.cellW * 0.65;
+    const fade = age <= BARK_TRAVEL_TIME ? 1 : Math.max(0, 1 - (age - BARK_TRAVEL_TIME) / BARK_FADE_TIME);
     for (let r = Math.max(0, Math.floor((y - radius - band) / p.cellH)); r <= Math.min(p.rows - 1, Math.ceil((y + radius + band) / p.cellH)); r++) {
       for (let c = Math.max(0, Math.floor((x - radius - band) / p.cellW)); c <= Math.min(p.cols - 1, Math.ceil((x + radius + band) / p.cellW)); c++) {
         const px = (c + 0.5) * p.cellW, py = (r + 0.5) * p.cellH, dx = px - x, dy = py - y;
         const off = Math.abs(Math.hypot(dx, dy) - radius);
-        // A single thin, broken ripple rather than two bright expanding walls.
-        if (off < band && this.texture[r * p.cols + c] > 0.42) this.put(px, py, lineGlyph(-dy, dx), 0.3 * (1 - t) * (1 - off / band), t < 0.65 ? 5 : 1);
+        // Thin, broken and softly colored, but visible from the very first frame.
+        if (off < band && this.texture[r * p.cols + c] > 0.42) this.put(px, py, lineGlyph(-dy, dx), (0.3 - t * 0.09) * fade * (1 - off / band), 5);
       }
     }
   }
@@ -277,7 +280,7 @@ export class Renderer {
       this.ring(m.x, m.y, radius, Math.max(0, 0.9 - m.age * 0.65), 0);
       this.put(m.x, m.y, '+', Math.max(0, 0.8 - m.age * 0.5), 0);
     }
-    for (const bark of w.barks) this.barkRipple(bark.x, bark.y, bark.age);
+    for (const bark of w.barks) this.barkRipple(bark);
     this.pen();
     for (const b of w.birds) if (b.state === 'landed') this.bird(b);
     const animals = w.animals;

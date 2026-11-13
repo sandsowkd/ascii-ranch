@@ -30,7 +30,7 @@ All four actions can be used again immediately: **there are no cooldowns**.
 
 | Key | Ability | What happens |
 | --- | --- | --- |
-| **Q** | **Bark** | Nearby sheep within 300 px move about two body lengths (roughly 100 px) away over 2.4 seconds. Distant sheep keep grazing. A single thin, broken ripple stays within 86 px and fades in 1.2 seconds; recasting gives another short nudge. |
+| **Q** | **Bark** | A thin, broken ripple appears immediately outside the dog and crosses the entire field in 0.55 seconds, fading by 0.67 seconds. Sheep and lambs start their short, roughly 100 px escape only as the visible wave touches their bodies; each wave nudges an animal once. Recasting creates a new wave. |
 | **W** | **Come By** | The dog joins a rounded, padded convex outline of **every** sheep, including edge strays, then makes a full lap. Curved ends and a short look-ahead avoid empty rectangular corners. The faster pass applies inward herding pressure only while W is active. The outline updates as the sheep move. |
 | **E** | **Sprint** | A short sprint toward its current destination. When idle, the dog sprints toward the cursor. |
 | **R** | **Recall / Release** | First press: return to the small fenced pen in the bottom-right corner. Next press: sprint all the way to the cursor, with no click required. The second press also works while the dog is on its way home. |
@@ -87,6 +87,7 @@ src/
   simulation/Pasture.ts   retained grass, consumption, regrowth and trampled paths
   simulation/World.ts    adults, lamb families, food, movement and ability clocks
   simulation/Birds.ts    occasional bird visits, landing and takeoff
+  simulation/bark.ts     shared wavefront timing for rendering and animal contact
   simulation/navigation.ts  obstacle-aware paths and continuous collision checks
   simulation/route.ts    rounded flock envelopes and perimeter navigation
   engine/grass.ts        gradual grass glyph and color stages

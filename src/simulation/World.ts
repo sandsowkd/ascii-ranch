@@ -1,6 +1,7 @@
 import { clamp, hash3, TAU } from '../vendor/pond-math';
 import { Pasture } from './Pasture';
 import { BirdLife } from './Birds';
+import { BARK_LIFETIME, barkTouches, createBark, type Bark } from './bark';
 import { planDogPath, safeMovementFraction, segmentClear, type Obstacle } from './navigation';
 import { aheadOnRoute, nearestOnRoute, perimeter, roundedEnvelope, type Point } from './route';
 
@@ -24,7 +25,6 @@ export interface Dog {
   idleTime: number; sleeping: boolean; navPath: Point[]; navAt: number; navGoalX: number; navGoalY: number; navMode: 'clear' | 'squeeze' | 'cross'; navStuck: number; navClearSince: number;
 }
 export interface Feed { id: number; x: number; y: number; amount: number; age: number; seed: number }
-export interface Bark { x: number; y: number; age: number }
 export interface Rect { left: number; right: number; top: number; bottom: number }
 function seeded(seed: number) {
   let s = seed >>> 0;
@@ -146,14 +146,8 @@ export class World {
     const d = this.dog!; d.idleTime = 0; d.sleeping = false;
     if (key === 'q') {
       if (this.barks.length >= 10) this.barks.shift();
-      this.barks.push({ x: d.x, y: d.y, age: 0 }); this.panicX = d.x; this.panicY = d.y; this.panicLeft = 2.4;
-      for (const s of this.animals) {
-        const dx = s.x - d.x, dy = s.y - d.y, distance = Math.hypot(dx, dy);
-        if (distance > 300 * this.scale) continue;
-        const angle = distance < 0.1 ? s.phase : Math.atan2(dy, dx);
-        const goal = this.clampPoint(s.x + Math.cos(angle) * 104 * this.scale, s.y + Math.sin(angle) * 104 * this.scale);
-        s.barkLeft = 2.4; s.barkGoalX = goal.x; s.barkGoalY = goal.y;
-      }
+      this.barks.push(createBark(d.x, d.y, this.width, this.height, this.scale));
+      this.panicX = d.x; this.panicY = d.y; this.panicLeft = ABILITIES.q.duration;
     }
     if (key === 'e') { if (d.arrived && aim) this.sendDog(aim.x, aim.y); d.sprint = ABILITIES.e.duration; }
     if (key === 'w') {
@@ -309,13 +303,21 @@ export class World {
     dt = Math.min(dt, 1 / 30); this.time += dt; this.pasture.step(dt);
     this.panicLeft = Math.max(0, this.panicLeft - dt);
     for (const bark of this.barks) bark.age += dt;
-    this.barks = this.barks.filter(b => b.age < ABILITIES.q.duration);
+    this.barks = this.barks.filter(b => b.age < BARK_LIFETIME);
     if (this.marker) { this.marker.age += dt; if (this.marker.age > 1.5) this.marker = null; }
     this.stepDog(dt);
     const dog = this.dog, scale = this.scale, herd = this.herdCenter(), animals = this.animals;
     const driving = !!dog?.orbit && !dog.orbitEntering;
     for (const s of animals) {
       this.updateCompanions(s, dt); s.barkLeft = Math.max(0, s.barkLeft - dt);
+      for (const bark of this.barks) {
+        if (bark.hitIds.has(s.id) || !barkTouches(bark, s.x, s.y, 24 * scale * s.size, dt)) continue;
+        bark.hitIds.add(s.id);
+        const dx = s.x - bark.x, dy = s.y - bark.y;
+        const angle = Math.hypot(dx, dy) < 0.1 ? s.phase : Math.atan2(dy, dx);
+        const goal = this.clampPoint(s.x + Math.cos(angle) * 104 * scale, s.y + Math.sin(angle) * 104 * scale);
+        s.barkLeft = ABILITIES.q.duration; s.barkGoalX = goal.x; s.barkGoalY = goal.y;
+      }
       s.timer -= dt; s.hunger = Math.min(1, s.hunger + dt * 0.004);
       let desiredX = 0, desiredY = 0, speed = s.speed * scale;
       const dogDist = dog && !dog.atHome ? Math.hypot(s.x - dog.x, s.y - dog.y) : Infinity;
