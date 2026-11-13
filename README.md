@@ -35,7 +35,7 @@ All four actions can be used again immediately: **there are no cooldowns**.
 | **E** | **Sprint** | A short sprint toward its current destination. When idle, the dog sprints toward the cursor. |
 | **R** | **Recall / Release** | First press: return to the small fenced pen in the bottom-right corner. Next press: sprint all the way to the cursor, with no click required. The second press also works while the dog is on its way home. |
 
-The bottom-right dog button calls the dog, then offers the same recall/release action as R. An idle dog dozes after seven seconds and releases drifting `z`/`Z` glyphs. Movement or an ability wakes it immediately. A sleeping dog keeps a gentle 56 px personal-space radius. A moving dog influences a wider 172 px radius (205 px during a sprint), and sheep anticipate its approach about half a second ahead. An awake stationary dog keeps a smaller 92 px zone. A recalled dog rests inside its pen. On arrival the dog keeps its last heading, including when it falls asleep.
+The bottom-right dog button calls the dog, then offers the same recall/release action as R. An idle dog dozes after seven seconds and releases drifting `z`/`Z` glyphs. Movement or an ability wakes it immediately. A sleeping dog keeps a gentle 56 px personal-space radius. A moving dog influences a wider 172 px radius (205 px during a sprint), and sheep anticipate its approach about half a second ahead. An awake stationary dog keeps a smaller 92 px zone. A recalled dog rests inside its pen. On arrival the dog keeps its last heading, including when it falls asleep. Heading updates use the signed shortest angle and stay normalized, so repeated Come By laps never produce a 270-degree turn at a 90-degree corner.
 
 ## Feeding and other controls
 
@@ -59,13 +59,13 @@ Food is shared and slowly consumed, with up to ten handfuls lasting up to 120 se
 
 Ordinary sheep walk at 8–13 CSS pixels per second. Food attracts them at about 1.35 times that pace. Being chased raises their speed modestly, with a 26 px/s cap. A bark briefly allows up to 46 px/s, toward a nearby escape destination rather than a screen edge.
 
-The dog walks at 108 px/s, circles at 198 px/s, sprints with E at 235 px/s, and launches from recall at 255 px/s. These speeds scale down on smaller screens. Grazing keeps a slow bite rate. Cutting down a plant leaves a visible patch, so sheep move toward fresh grass.
+The dog walks at 116 px/s, circles at 210 px/s, sprints with E at 248 px/s, and launches from recall at 270 px/s. These speeds scale down on smaller screens. Grazing is about 24% faster, with a broad center to each bite so sheep leave a clear mouth-sized eaten patch. Cutting down a plant leaves a lasting trail as sheep move toward fresh grass.
 
 ## A living pasture
 
 Every visible grass cell starts fully grown and edible. As sheep graze, a cut plant becomes bare charcoal ground, then gradually recovers through dark green `.`, brighter `:`, upright `!`/`;` shoots, leafy `v`/`/`/`\` grass and mature grass. Brightness increases within each stage. There are no brown flecks, roads or permanent bare patches.
 
-A freshly cropped cell rests for 68–76 seconds, using stable per-cell variation of at most eight seconds. After that, growth advances continuously at 0.0022 per second. Earlier-eaten patches normally recover first, so grazing history stays visible. Full recovery takes about eight to nine minutes; young shoots are left alone until they reach edible maturity. Space still toggles an immediate regrow brush, including while paused.
+A freshly cropped cell rests for 82–90 seconds, using stable per-cell variation of at most eight seconds. After that, growth advances continuously at 0.0018 per second. Earlier-eaten patches normally recover first, so grazing history stays visible. Full recovery takes about ten to eleven minutes; young shoots are left alone until they reach edible maturity. Space still toggles an immediate regrow brush, including while paused.
 
 Each sheep occasionally chooses zero, one or two nearby companions for 24–49 seconds. Their presence gives fresh grazing destinations a small preference, without a shared herd magnet. Sheep compare entire grass patches, travel distance, crowding and dog pressure; good fresh grass outweighs company. This supports loosely changing pairs and trios and independent grazers. They search farther when nearby ground is depleted.
 

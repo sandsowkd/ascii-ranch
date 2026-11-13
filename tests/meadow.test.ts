@@ -10,7 +10,7 @@ describe('the living pasture', () => {
     const p = new Pasture(900, 700), near = p.index(400, 300), far = p.index(80, 80);
     const initial = p.grass[near], untouched = p.grass[far];
     expect(p.bite(400, 300, 1, 25)).toBeGreaterThan(0);
-    expect(p.grass[near]).toBeLessThan(initial); expect(initial - p.grass[near]).toBeLessThanOrEqual(0.055); expect(p.grass[far]).toBe(untouched);
+    expect(p.grass[near]).toBeLessThan(initial); expect(initial - p.grass[near]).toBeLessThanOrEqual(0.068 + 1e-6); expect(p.grass[far]).toBe(untouched);
   });
   it('starts with a completely edible field and paints back only the brush area', () => {
     const p = new Pasture(900, 700);
@@ -25,7 +25,7 @@ describe('the living pasture', () => {
     const p = new Pasture(900, 700), i = p.index(400, 300);
     p.grass[i] = 0; p.tread(400, 300, 1); const tread = p.trampled[i];
     for (let k = 0; k < 1200; k++) p.step(0.1);
-    expect(p.grass[i]).toBeGreaterThan(0.25); expect(p.grass[i]).toBeLessThan(0.28); expect(p.grass[i]).toBeLessThanOrEqual(p.capacity[i]);
+    expect(p.grass[i]).toBeGreaterThan(0.21); expect(p.grass[i]).toBeLessThan(0.23); expect(p.grass[i]).toBeLessThanOrEqual(p.capacity[i]);
     expect(p.trampled[i]).toBeLessThan(tread * 0.01);
   });
   it('keeps nibbled ground cropped for minutes, preserves it on resize, and lets the brush restore it', () => {
@@ -214,7 +214,7 @@ describe('staged recovery and responsive controls', () => {
     const p = new Pasture(900, 700); p.bite(300, 300, 5, 25);
     for (let i = 0; i < 150; i++) p.step(0.1);
     p.bite(600, 300, 5, 25);
-    for (let i = 0; i < 630; i++) p.step(0.1);
+    for (let i = 0; i < 760; i++) p.step(0.1);
     expect(p.recoverIn[p.index(300, 300)]).toBe(0); expect(p.recoverIn[p.index(600, 300)]).toBeGreaterThan(0);
     expect(p.at(300, 300)).toBeGreaterThan(p.at(600, 300)); expect(p.edibleAt(300, 300)).toBe(0);
   });
@@ -258,5 +258,31 @@ describe('safe dog routes and active herding', () => {
     const p = new Pasture(900, 700); p.bite(450, 350, 5, 25);
     for (let i = 0; i < 600; i++) p.step(0.1);
     expect(p.at(450, 350)).toBe(0); expect(p.recoverIn[p.index(450, 350)]).toBeGreaterThan(5);
+  });
+});
+
+
+describe('shortest turns and visible grazing', () => {
+  it('takes a quarter turn in either direction after any number of full laps', () => {
+    for (const laps of [-20, -4, -1, 0, 1, 4, 20]) {
+      const offset = laps * Math.PI * 2;
+      expect(angleDelta(offset + Math.PI * 0.75, -Math.PI * 0.75)).toBeCloseTo(Math.PI / 2);
+      expect(angleDelta(offset - Math.PI * 0.75, Math.PI * 0.75)).toBeCloseTo(-Math.PI / 2);
+    }
+  });
+  it('turns the dog through 90 degrees rather than 270 at the wrap boundary', () => {
+    const w = new World(1200, 900, 0); w.toggleDog();
+    const heading = Math.PI * 2 + Math.PI * 0.75;
+    Object.assign(w.dog!, { x: 600, y: 400, heading }); w.sendDog(500, 300);
+    w.step(1 / 60); expect(angleDelta(heading, w.dog!.heading)).toBeGreaterThan(0);
+    advance(w, 0.4); expect(Math.abs(angleDelta(w.dog!.heading, -Math.PI * 0.75))).toBeLessThan(0.02);
+    expect(Math.abs(w.dog!.heading)).toBeLessThanOrEqual(Math.PI);
+  });
+  it('clears a visible mouth-sized patch that remains bare after a minute', () => {
+    const p = new Pasture(900, 700); p.bite(450, 350, 2, 21);
+    expect(p.at(450, 350)).toBe(0); expect(p.at(458, 350)).toBe(0);
+    expect(p.at(200, 200)).toBe(1);
+    for (let i = 0; i < 600; i++) p.step(0.1);
+    expect(p.at(450, 350)).toBe(0); expect(p.at(458, 350)).toBe(0);
   });
 });

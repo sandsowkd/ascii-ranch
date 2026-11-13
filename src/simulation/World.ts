@@ -15,7 +15,7 @@ export const ABILITIES: Record<Ability, { name: string; duration: number }> = {
   q: { name: 'Bark', duration: 2.4 }, w: { name: 'Come By', duration: 0 },
   e: { name: 'Sprint', duration: 1.25 }, r: { name: 'Recall / Release', duration: 0 },
 };
-export const SPEEDS = { sheepWalk: 13, sheepFood: 20, sheepChased: 26, sheepPanic: 46, dogWalk: 108, dogOrbit: 198, dogSprint: 235, dogRelease: 255 };
+export const SPEEDS = { sheepWalk: 13, sheepFood: 20, sheepChased: 26, sheepPanic: 46, dogWalk: 116, dogOrbit: 210, dogSprint: 248, dogRelease: 270 };
 export interface Dog {
   x: number; y: number; vx: number; vy: number; heading: number; targetX: number; targetY: number;
   arrived: boolean; sprint: number; orbit: 'w' | null; orbitEntering: boolean; orbitPath: Point[]; orbitProgress: number; orbitUpdatedAt: number;
@@ -29,7 +29,8 @@ function seeded(seed: number) {
   let s = seed >>> 0;
   return () => { s += 0x6d2b79f5; let t = Math.imul(s ^ s >>> 15, s | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 }
-export function angleDelta(from: number, to: number) { return ((to - from + Math.PI * 3) % TAU) - Math.PI; }
+/** Signed shortest turn, including headings accumulated over several laps. */
+export function angleDelta(from: number, to: number) { return Math.atan2(Math.sin(to - from), Math.cos(to - from)); }
 
 export class World {
   pasture: Pasture; sheep: Sheep[] = []; dog: Dog | null = null; feed: Feed[] = []; barks: Bark[] = [];
@@ -232,7 +233,7 @@ export class World {
     const fraction = safeMovementFraction(d, proposed, obstacles);
     d.vx = (proposed.x - d.x) * fraction / dt; d.vy = (proposed.y - d.y) * fraction / dt;
     d.x += d.vx * dt; d.y += d.vy * dt; d.arrived = Math.hypot(d.targetX - d.x, d.targetY - d.y) < 2;
-    if (!d.arrived && Math.hypot(d.vx, d.vy) > 2) d.heading += clamp(angleDelta(d.heading, Math.atan2(d.vy, d.vx)), -dt * 5, dt * 5);
+    if (!d.arrived && Math.hypot(d.vx, d.vy) > 2) d.heading = angleDelta(0, d.heading + clamp(angleDelta(d.heading, Math.atan2(d.vy, d.vx)), -dt * 5, dt * 5));
     if (d.arrived) {
       if (d.recalling) { d.recalling = false; d.atHome = true; d.x = this.home.doorX; d.y = this.home.doorY; }
       d.launching = false;
@@ -326,7 +327,7 @@ export class World {
       const v = Math.hypot(s.vx, s.vy);
       if (v > cap) { s.vx *= cap / v; s.vy *= cap / v; }
       Object.assign(s, this.clampPoint(s.x + s.vx * dt, s.y + s.vy * dt));
-      if (v > 2) s.heading += clamp(angleDelta(s.heading, Math.atan2(s.vy, s.vx)), -dt * 1.7, dt * 1.7);
+      if (v > 2) s.heading = angleDelta(0, s.heading + clamp(angleDelta(s.heading, Math.atan2(s.vy, s.vx)), -dt * 1.7, dt * 1.7));
       this.pasture.tread(s.x, s.y, dt * (v > 3 ? 0.32 : 0.04), 19 * scale);
     }
     this.resolveOverlaps(dt);
