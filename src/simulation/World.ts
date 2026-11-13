@@ -1,11 +1,12 @@
 import { clamp, hash3, TAU } from '../vendor/pond-math';
 import { Pasture } from './Pasture';
+import { BirdLife } from './Birds';
 import { planDogPath, safeMovementFraction, segmentClear, type Obstacle } from './navigation';
 import { aheadOnRoute, nearestOnRoute, perimeter, roundedEnvelope, type Point } from './route';
 
 export type SheepState = 'grazing' | 'walking' | 'following' | 'startled';
 export interface Sheep {
-  id: number; x: number; y: number; vx: number; vy: number; heading: number;
+  id: number; isLamb?: boolean; parentId?: number; x: number; y: number; vx: number; vy: number; heading: number;
   goalX: number; goalY: number; timer: number; hunger: number; state: SheepState;
   phase: number; size: number; speed: number; courage: number; wool: number; ate: number;
   companions: number[]; socialTimer: number; barkLeft: number; barkGoalX: number; barkGoalY: number;
@@ -15,7 +16,7 @@ export const ABILITIES: Record<Ability, { name: string; duration: number }> = {
   q: { name: 'Bark', duration: 2.4 }, w: { name: 'Come By', duration: 0 },
   e: { name: 'Sprint', duration: 1.25 }, r: { name: 'Recall / Release', duration: 0 },
 };
-export const SPEEDS = { sheepWalk: 13, sheepFood: 20, sheepChased: 26, sheepPanic: 46, dogWalk: 116, dogOrbit: 210, dogSprint: 248, dogRelease: 270 };
+export const SPEEDS = { sheepWalk: 11, sheepFood: 20, sheepChased: 26, sheepPanic: 46, dogWalk: 116, dogOrbit: 210, dogSprint: 248, dogRelease: 270 };
 export interface Dog {
   x: number; y: number; vx: number; vy: number; heading: number; targetX: number; targetY: number;
   arrived: boolean; sprint: number; orbit: 'w' | null; orbitEntering: boolean; orbitPath: Point[]; orbitProgress: number; orbitUpdatedAt: number;
@@ -33,12 +34,14 @@ function seeded(seed: number) {
 export function angleDelta(from: number, to: number) { return Math.atan2(Math.sin(to - from), Math.cos(to - from)); }
 
 export class World {
-  pasture: Pasture; sheep: Sheep[] = []; dog: Dog | null = null; feed: Feed[] = []; barks: Bark[] = [];
+  pasture: Pasture; sheep: Sheep[] = []; lambs: Sheep[] = []; birdLife = new BirdLife(); dog: Dog | null = null; feed: Feed[] = []; barks: Bark[] = [];
   marker: { x: number; y: number; age: number } | null = null;
   time = 0; paused = false; eaten = 0; nextId = 0; nextFeed = 0;
   panicLeft = 0; panicX = 0; panicY = 0;
   private random = seeded(74821);
   constructor(public width: number, public height: number, count = 18) { this.pasture = new Pasture(width, height); this.reset(count); }
+  get birds() { return this.birdLife.birds; }
+  get animals(): Sheep[] { return [...this.sheep, ...this.lambs]; }
   get scale() { return this.width < 600 ? 0.79 : 1; }
   get dogBounds(): Rect {
     return { left: 18 * this.scale, right: this.width - 18 * this.scale, top: 83,
@@ -68,7 +71,7 @@ export class World {
   clampPoint(x: number, y: number) { return this.clampTo(x, y, this.bounds); }
   dogPoint(x: number, y: number) { return this.clampTo(x, y, this.dogBounds); }
   reset(count = this.sheep.length) {
-    this.random = seeded(74821); this.sheep.length = 0; this.dog = null; this.feed.length = 0;
+    this.random = seeded(74821); this.sheep.length = 0; this.lambs.length = 0; this.birdLife.reset(); this.dog = null; this.feed.length = 0;
     this.time = 0; this.eaten = 0; this.nextId = 0; this.nextFeed = 0; this.barks.length = 0; this.marker = null; this.panicLeft = 0;
     this.pasture.resize(this.width, this.height, false);
     for (let i = 0; i < count; i++) this.addSheep(true);
@@ -85,10 +88,27 @@ export class World {
     this.sheep.push({ id, ...point, vx: 0, vy: 0, heading: rand() * TAU, goalX: point.x, goalY: point.y,
       timer: 8 + rand() * 12, hunger: 0.3 + rand() * 0.5, state: 'grazing', phase: rand() * TAU,
       companions: [], socialTimer: 0, barkLeft: 0, barkGoalX: point.x, barkGoalY: point.y,
-      size: 0.87 + rand() * 0.25, speed: 8 + rand() * 5, courage: 0.8 + rand() * 0.4, wool: rand(), ate: 0 });
+      size: 0.87 + rand() * 0.25, speed: 7 + rand() * 3.5, courage: 0.8 + rand() * 0.4, wool: rand(), ate: 0 });
+    this.syncLambs();
     return true;
   }
-  removeSheep() { return this.sheep.pop() !== undefined; }
+  private syncLambs() {
+    this.lambs.length = Math.min(this.lambs.length, Math.floor(this.sheep.length / 6));
+    for (let i = 0; i < Math.floor(this.sheep.length / 6); i++) {
+      const parent = this.sheep[i * 6 + 5];
+      if (this.lambs[i]) { this.lambs[i].parentId = parent.id; continue; }
+      let point = this.clampPoint(parent.x, parent.y), best = -Infinity;
+      for (let j = 0; j < 16; j++) {
+        const a = parent.heading + j * TAU / 16, p = this.clampPoint(parent.x + Math.cos(a) * 48 * this.scale, parent.y + Math.sin(a) * 48 * this.scale);
+        const clearance = Math.min(...this.animals.map(s => Math.hypot(s.x - p.x, s.y - p.y)));
+        if (clearance > best) { point = p; best = clearance; }
+      }
+      this.lambs.push({ ...parent, ...point, id: 100000 + parent.id, parentId: parent.id, isLamb: true,
+        size: 0.52 + hash3(parent.id, 2, 881) * 0.07, speed: 8.5, phase: parent.phase + 1.3,
+        vx: 0, vy: 0, goalX: point.x, goalY: point.y, companions: [], socialTimer: Infinity, ate: 0 });
+    }
+  }
+  removeSheep() { const removed = this.sheep.pop() !== undefined; this.syncLambs(); return removed; }
   toggleDog() {
     if (this.dog) { this.dog = null; return false; }
     const p = this.dogPoint(this.pen.left - 42 * this.scale, this.home.y);
@@ -107,17 +127,17 @@ export class World {
   orbitOutline(): Rect {
     const lane = this.dogBounds, pad = 78 * this.scale;
     let left = Infinity, right = -Infinity, top = Infinity, bottom = -Infinity;
-    for (const s of this.sheep) { left = Math.min(left, s.x); right = Math.max(right, s.x); top = Math.min(top, s.y); bottom = Math.max(bottom, s.y); }
+    for (const s of this.animals) { left = Math.min(left, s.x); right = Math.max(right, s.x); top = Math.min(top, s.y); bottom = Math.max(bottom, s.y); }
     if (!this.sheep.length) { left = this.width * 0.5 - 45; right = this.width * 0.5 + 45; top = this.height * 0.45 - 40; bottom = this.height * 0.45 + 40; }
     return { left: Math.max(lane.left, left - pad), right: Math.min(lane.right, right + pad), top: Math.max(lane.top, top - pad), bottom: Math.min(lane.bottom, bottom + pad) };
   }
   flockCenter() {
     const b = this.orbitOutline(), x = (b.left + b.right) / 2, y = (b.top + b.bottom) / 2;
-    let radius = 0; for (const s of this.sheep) radius = Math.max(radius, Math.hypot(s.x - x, s.y - y));
+    let radius = 0; for (const s of this.animals) radius = Math.max(radius, Math.hypot(s.x - x, s.y - y));
     return { x, y, radius: radius + 78 * this.scale };
   }
   orbitRoute(): Point[] {
-    const points = this.sheep.length ? this.sheep : [{ x: this.width * 0.5, y: this.height * 0.45 }];
+    const points = this.sheep.length ? this.animals : [{ x: this.width * 0.5, y: this.height * 0.45 }];
     return roundedEnvelope(points, 78 * this.scale).map(p => this.dogPoint(p.x, p.y));
   }
   cast(key: Ability, aim?: { x: number; y: number }) {
@@ -127,7 +147,7 @@ export class World {
     if (key === 'q') {
       if (this.barks.length >= 10) this.barks.shift();
       this.barks.push({ x: d.x, y: d.y, age: 0 }); this.panicX = d.x; this.panicY = d.y; this.panicLeft = 2.4;
-      for (const s of this.sheep) {
+      for (const s of this.animals) {
         const dx = s.x - d.x, dy = s.y - d.y, distance = Math.hypot(dx, dy);
         if (distance > 300 * this.scale) continue;
         const angle = distance < 0.1 ? s.phase : Math.atan2(dy, dx);
@@ -157,8 +177,8 @@ export class World {
     const p = this.clampPoint(x, y); this.feed.push({ id: this.nextFeed++, ...p, amount: 2.2, age: 0, seed: this.random() * 10000 });
   }
   resize(width: number, height: number) {
-    const sx = width / this.width, sy = height / this.height; this.width = width; this.height = height; this.pasture.resize(width, height);
-    for (const s of this.sheep) { const p = this.clampPoint(s.x * sx, s.y * sy), goal = this.clampPoint(s.goalX * sx, s.goalY * sy); Object.assign(s, p, { goalX: goal.x, goalY: goal.y }); }
+    const sx = width / this.width, sy = height / this.height; this.width = width; this.height = height; this.pasture.resize(width, height); this.birdLife.resize(sx, sy);
+    for (const s of this.animals) { const p = this.clampPoint(s.x * sx, s.y * sy), goal = this.clampPoint(s.goalX * sx, s.goalY * sy); Object.assign(s, p, { goalX: goal.x, goalY: goal.y }); }
     if (this.dog) {
       const p = this.dogPoint(this.dog.x * sx, this.dog.y * sy), goal = this.dogPoint(this.dog.targetX * sx, this.dog.targetY * sy);
       Object.assign(this.dog, p, { targetX: goal.x, targetY: goal.y });
@@ -184,6 +204,18 @@ export class World {
     s.companions = nearby.slice(0, count).map(o => o.id); s.socialTimer = 24 + this.random() * 25;
   }
   private freshGrass(s: Sheep) {
+    if (s.isLamb) {
+      const parent = this.sheep.find(o => o.id === s.parentId);
+      if (parent) {
+        let p = this.clampPoint(parent.x, parent.y), best = -Infinity;
+        for (let j = 0; j < 8; j++) {
+          const a = parent.heading + j * TAU / 8, candidate = this.clampPoint(parent.x + Math.cos(a) * 54 * this.scale, parent.y + Math.sin(a) * 54 * this.scale);
+          const quality = this.pasture.patchQuality(candidate.x, candidate.y) * 3 - Math.hypot(candidate.x - s.x, candidate.y - s.y) * 0.004;
+          if (quality > best) { p = candidate; best = quality; }
+        }
+        s.goalX = p.x; s.goalY = p.y; s.timer = 12; s.state = 'walking'; return;
+      }
+    }
     let score = -Infinity, bestX = s.x, bestY = s.y;
     const friends = this.sheep.filter(o => s.companions.includes(o.id));
     for (let j = 0; j < 38; j++) {
@@ -202,7 +234,7 @@ export class World {
   dogObstacles(mode: 'clear' | 'squeeze' | 'cross' = 'clear'): Obstacle[] {
     const body = mode === 'clear' ? 24 : mode === 'squeeze' ? 18 : 9;
     const margin = mode === 'clear' ? 13 : mode === 'squeeze' ? 7 : 3;
-    return this.sheep.map(s => ({ x: s.x + Math.cos(s.heading) * 8 * this.scale,
+    return this.animals.map(s => ({ x: s.x + Math.cos(s.heading) * 8 * this.scale,
       y: s.y + Math.sin(s.heading) * 8 * this.scale, radius: (body * s.size + margin) * this.scale }));
   }
   private chooseDogRoute(goal: Point) {
@@ -280,9 +312,9 @@ export class World {
     this.barks = this.barks.filter(b => b.age < ABILITIES.q.duration);
     if (this.marker) { this.marker.age += dt; if (this.marker.age > 1.5) this.marker = null; }
     this.stepDog(dt);
-    const dog = this.dog, scale = this.scale, herd = this.herdCenter();
+    const dog = this.dog, scale = this.scale, herd = this.herdCenter(), animals = this.animals;
     const driving = !!dog?.orbit && !dog.orbitEntering;
-    for (const s of this.sheep) {
+    for (const s of animals) {
       this.updateCompanions(s, dt); s.barkLeft = Math.max(0, s.barkLeft - dt);
       s.timer -= dt; s.hunger = Math.min(1, s.hunger + dt * 0.004);
       let desiredX = 0, desiredY = 0, speed = s.speed * scale;
@@ -315,10 +347,13 @@ export class World {
           s.hunger = Math.max(0, s.hunger - amount * 0.4); speed = 0;
         } else { desiredX = food.x - s.x; desiredY = food.y - s.y; speed = Math.min(SPEEDS.sheepFood, s.speed * 1.35) * scale; }
       } else {
-        if (s.state === 'startled' || s.state === 'following') this.freshGrass(s);
+        const parent = s.isLamb ? this.sheep.find(o => o.id === s.parentId) : undefined;
+        const followingParent = parent && Math.hypot(parent.x - s.x, parent.y - s.y) > 74 * scale;
+        if (s.state === 'startled' || s.state === 'following' || followingParent) this.freshGrass(s);
+        if (followingParent) speed = 14 * scale;
         if (s.state === 'grazing') {
-          const mouthX = s.x + Math.cos(s.heading) * 25 * scale, mouthY = s.y + Math.sin(s.heading) * 25 * scale;
-          const amount = this.pasture.bite(mouthX, mouthY, dt, 21 * scale);
+          const mouthX = s.x + Math.cos(s.heading) * 44 * scale * s.size, mouthY = s.y + Math.sin(s.heading) * 44 * scale * s.size;
+          const amount = this.pasture.bite(mouthX, mouthY, dt * (s.isLamb ? 0.7 : 1), 21 * scale * s.size);
           s.ate += amount; this.eaten += amount; s.hunger = Math.max(0, s.hunger - dt * 0.01); speed = 0;
           if (this.pasture.edibleAt(mouthX, mouthY) < 0.25 || s.timer < 0) this.freshGrass(s);
         }
@@ -329,9 +364,9 @@ export class World {
         }
       }
       const length = Math.hypot(desiredX, desiredY) || 1; desiredX = desiredX / length * speed; desiredY = desiredY / length * speed;
-      for (const other of this.sheep) {
+      for (const other of animals) {
         if (other === s) continue;
-        const dx = s.x - other.x, dy = s.y - other.y, d = Math.hypot(dx, dy), spacing = 76 * scale * (s.size + other.size) * 0.5;
+        const dx = s.x - other.x, dy = s.y - other.y, d = Math.hypot(dx, dy), spacing = (s.isLamb || other.isLamb ? 66 : 76) * scale * (s.size + other.size) * 0.5;
         if (d < spacing) { const k = (1 - d / spacing) ** 2 * 36 * scale; desiredX += (d < 0.001 ? s.id < other.id ? -1 : 1 : dx / d) * k; desiredY += (d < 0.001 ? 0.3 : dy / d) * k; }
       }
       // Sleeping dogs still get a little personal space, without startling the flock.
@@ -361,17 +396,18 @@ export class World {
       if (v > cap) { s.vx *= cap / v; s.vy *= cap / v; }
       Object.assign(s, this.clampPoint(s.x + s.vx * dt, s.y + s.vy * dt));
       if (v > 2) s.heading = angleDelta(0, s.heading + clamp(angleDelta(s.heading, Math.atan2(s.vy, s.vx)), -dt * 1.7, dt * 1.7));
-      this.pasture.tread(s.x, s.y, dt * (v > 3 ? 0.32 : 0.04), 19 * scale);
+      this.pasture.tread(s.x, s.y, dt * (v > 3 ? 0.32 : 0.04), 19 * scale * s.size);
     }
-    this.resolveOverlaps(dt);
+    this.resolveOverlaps(dt, animals);
+    this.birdLife.step(dt, this.width, this.height, this.pasture, animals, dog?.atHome ? null : dog, this.barks);
     for (const f of this.feed) f.age += dt;
     this.feed = this.feed.filter(f => f.amount > 0.015 && f.age < 120);
   }
   /** A soft spacing zone plus positional relaxation leaves only a little wool overlap. */
-  private resolveOverlaps(dt: number) {
+  private resolveOverlaps(dt: number, animals: Sheep[]) {
     const cap = 1.05 * this.scale * dt * 60;
-    for (let pass = 0; pass < 3; pass++) for (let i = 0; i < this.sheep.length; i++) for (let j = i + 1; j < this.sheep.length; j++) {
-      const a = this.sheep[i], b = this.sheep[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
+    for (let pass = 0; pass < 3; pass++) for (let i = 0; i < animals.length; i++) for (let j = i + 1; j < animals.length; j++) {
+      const a = animals[i], b = animals[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
       const min = 50 * this.scale * (a.size + b.size) * 0.5;
       if (d >= min) continue;
       const angle = hash3(a.id, b.id, 33) * TAU, nx = d < 0.001 ? Math.cos(angle) : dx / d, ny = d < 0.001 ? Math.sin(angle) : dy / d;

@@ -33,6 +33,7 @@ if (new URLSearchParams(location.search).has('debug')) Object.defineProperty(win
   time: world.time, paused: world.paused, count: world.sheep.length, width: world.width, height: world.height,
   cols: world.pasture.cols, rows: world.pasture.rows, cellW: world.pasture.cellW, cellH: world.pasture.cellH,
   grass: world.pasture.grass.reduce((a, b) => a + b, 0), eaten: world.eaten,
+  lambs: world.lambs.map(s => ({ ...s })), birds: world.birds.map(b => ({ ...b })),
   feed: world.feed.map(f => ({ ...f })), sheep: world.sheep.map(s => ({ ...s })), dog: world.dog ? { ...world.dog } : null,
   herd: world.herdCenter(), home: world.home, pen: world.pen, regrowMode: controller.regrowMode, outline: world.orbitOutline(), panic: world.panicLeft, barks: world.barks.length, feedMode: controller.feedMode, fps,
 }) } });

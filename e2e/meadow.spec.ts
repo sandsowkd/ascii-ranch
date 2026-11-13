@@ -97,20 +97,69 @@ test('records a frame sample with moving sheep and animated grass', async ({ pag
 
 test('sheep heads keep priority over overlapping wool', async ({ page }) => {
   const result = await page.evaluate(() => {
-    const app = (window as any).__meadow, w = app.world; w.paused = true; w.sheep.length = 2; w.dog = null;
+    const app = (window as any).__meadow, w = app.world; w.paused = true; w.sheep.length = 2; w.lambs.length = 0; w.dog = null;
     const scale = w.scale, x = w.width * 0.5, y = w.height * 0.4;
     Object.assign(w.sheep[0], { x, y, heading: 0, phase: 0, size: 1, state: 'walking' });
     Object.assign(w.sheep[1], { x: x + 35 * scale, y, heading: 0, phase: 0, size: 1, state: 'walking' });
     app.renderer.render();
-    return app.renderer.cellAt(x + 32.5 * scale, y - 5.8 * scale);
+    return app.renderer.cellAt(x + 33.5 * scale, y - 7.5 * scale);
   });
   expect(result.priority).toBe(4); expect(result.tile).toBe(0); expect(result.glyph).toBe('O');
+});
+
+test('larger light faces and ears remain clear on completely grazed ground in every direction', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    const app = (window as any).__meadow, w = app.world; w.reset(1); w.paused = true; w.pasture.grass.fill(0); w.pasture.flower.fill(-1);
+    const s = w.sheep[0], p = w.pasture, scale = w.scale, x = w.width * 0.5, y = w.height * 0.4;
+    Object.assign(s, { x, y, phase: 0, size: 1, state: 'walking' });
+    return [0, Math.PI / 2, Math.PI, -Math.PI / 2].map(heading => {
+      s.heading = heading; app.renderer.render(); let eyes = 0, face = 0, ears = 0;
+      for (let row = Math.floor((y - 65 * scale) / p.cellH); row < Math.ceil((y + 65 * scale) / p.cellH); row++) for (let col = Math.floor((x - 65 * scale) / p.cellW); col < Math.ceil((x + 65 * scale) / p.cellW); col++) {
+        const cell = app.renderer.cellAt((col + 0.5) * p.cellW, (row + 0.5) * p.cellH);
+        if (cell.glyph === 'O' && cell.priority === 4) eyes++;
+        if (cell.family === 8 && cell.level > 12) face++;
+        if (['(', ')'].includes(cell.glyph) && cell.priority === 3) ears++;
+      }
+      return { eyes, face, ears };
+    });
+  });
+  for (const head of result) { expect(head.eyes).toBe(2); expect(head.face).toBeGreaterThan(2); expect(head.ears).toBe(2); }
+});
+
+test('small lambs accompany the flock and their counter follows adult population changes', async ({ page }) => {
+  const before = await state(page); expect(before.lambs).toHaveLength(3);
+  expect(before.lambs.every((l: any) => l.size < 0.6 && before.sheep.some((s: any) => s.id === l.parentId))).toBe(true);
+  await expect(page.locator('#flock-caption')).toHaveText('your flock · 3 lambs');
+  await page.getByRole('button', { name: 'Remove a sheep', exact: true }).click();
+  expect((await state(page)).lambs).toHaveLength(2); await expect(page.locator('#flock-caption')).toHaveText('your flock · 2 lambs');
+  await page.getByRole('button', { name: 'Add a sheep', exact: true }).click();
+  expect((await state(page)).lambs).toHaveLength(3);
+});
+
+test('colorful visitors land in the meadow, take off near the dog, and appear with the lambs', async ({ page }, info) => {
+  const landed = await page.evaluate(() => {
+    const app = (window as any).__meadow, w = app.world;
+    w.reset(18); w.paused = false;
+    for (let i = 0; i < 1500 && !w.birds.some((b: any) => b.state === 'landed'); i++) w.step(1 / 60);
+    app.controller.sync(); app.renderer.render();
+    const bird = w.birds.find((b: any) => b.state === 'landed'), p = w.pasture; let colored = 0;
+    for (let row = 0; row < p.rows; row++) for (let col = 0; col < p.cols; col++) if (app.renderer.cellAt((col + 0.5) * p.cellW, (row + 0.5) * p.cellH).family >= 9) colored++;
+    return { bird, colored, lambs: w.lambs.length };
+  });
+  expect(landed.bird).toBeTruthy(); expect(landed.colored).toBeGreaterThan(3); expect(landed.lambs).toBe(3);
+  await page.screenshot({ path: `docs/${info.project.name}-families.png` });
+  const departing = await page.evaluate(() => {
+    const app = (window as any).__meadow, w = app.world, bird = w.birds.find((b: any) => b.state === 'landed');
+    w.toggleDog(); Object.assign(w.dog, { x: bird.x + 60, y: bird.y, targetX: bird.x + 60, targetY: bird.y, arrived: true });
+    w.paused = false; w.step(1 / 60); w.paused = true; app.renderer.render(); return bird.state;
+  });
+  expect(departing).toBe('departing');
 });
 
 test('uneaten turf is light green, grazed turf is dark green on charcoal, and idle dogs show drifting Zs', async ({ page }, info) => {
   const result = await page.evaluate(() => {
     const app = (window as any).__meadow, w = app.world, p = w.pasture;
-    w.paused = true; w.sheep.length = 0;
+    w.paused = true; w.sheep.length = 0; w.lambs.length = 0;
     const x = w.width * 0.5, y = w.height * 0.4, a = p.index(x, y), b = p.index(x + 50, y);
     p.capacity[a] = p.capacity[b] = 0.8; p.grass[a] = 0.8; p.grass[b] = 0.02; p.soil[a] = p.soil[b] = 0; p.flower[a] = p.flower[b] = -1;
     app.renderer.render(); return { full: app.renderer.cellAt(x, y), eaten: app.renderer.cellAt(x + 50, y) };
@@ -153,7 +202,7 @@ test('Space toggles a continuous hover regrow brush; P pauses independently', as
 
 test('terrain matches Pond charcoal; bare grass rests on charcoal before growing through stages', async ({ page }, info) => {
   const result = await page.evaluate(() => {
-    const app = (window as any).__meadow, w = app.world, p = w.pasture; w.paused = true; w.sheep.length = 0;
+    const app = (window as any).__meadow, w = app.world, p = w.pasture; w.paused = true; w.sheep.length = 0; w.lambs.length = 0;
     p.flower.fill(-1); p.grass.fill(1); app.renderer.render();
     let freshBrown = 0, brown = 0, dark = 0, full = 0, dots = 0;
     for (let r = 10; r < p.rows - 20; r++) for (let c = 5; c < p.cols - 5; c++) {
@@ -218,7 +267,7 @@ test('incremental glyph painting leaves no movement trails', async ({ page }) =>
 
 test('regrowth gains characters and color gradually, and running dogs have visible feet and tails', async ({ page }, info) => {
   const result = await page.evaluate(() => {
-    const app = (window as any).__meadow, w = app.world, p = w.pasture; w.paused = true; w.sheep.length = 0;
+    const app = (window as any).__meadow, w = app.world, p = w.pasture; w.paused = true; w.sheep.length = 0; w.lambs.length = 0;
     const amounts = [0, 0.1, 0.3, 0.55, 0.8, 1]; p.flower.fill(-1); p.trampled.fill(0);
     for (let r = 0; r < p.rows; r++) for (let c = 0; c < p.cols; c++) p.grass[r * p.cols + c] = amounts[Math.min(5, Math.floor(c / p.cols * 6))];
     app.renderer.render();

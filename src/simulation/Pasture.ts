@@ -50,12 +50,12 @@ export class Pasture {
         if (d >= radius) continue;
         const i = r * this.cols + c;
         if (this.cropped[i] && this.grass[i] < 0.7) continue;
-        const amount = Math.min(this.grass[i], dt * 0.068 * Math.min(1, (1 - d / radius) / 0.42));
+        const amount = Math.min(this.grass[i], dt * 0.045 * Math.min(1, (1 - d / radius) / 0.42));
         this.grass[i] -= amount; eaten += amount;
         if (this.grass[i] < 0.9) {
           // A cut plant rests, then grows continuously through visible stages.
           eaten += this.grass[i]; this.grass[i] = 0; this.cropped[i] = 1;
-          this.recoverIn[i] = 82 + hash3(c, r, 47) * 8;
+          this.recoverIn[i] = 105 + hash3(c, r, 47) * 9;
         }
       }
     }
@@ -85,7 +85,7 @@ export class Pasture {
     const decay = Math.exp(-elapsed * 0.65);
     for (let i = 0; i < this.grass.length; i++) {
       if (this.recoverIn[i] > 0) this.recoverIn[i] = Math.max(0, this.recoverIn[i] - elapsed);
-      else this.grass[i] = Math.min(this.capacity[i], this.grass[i] + elapsed * 0.0018);
+      else this.grass[i] = Math.min(this.capacity[i], this.grass[i] + elapsed * 0.0014);
       if (this.grass[i] >= 0.985 && this.recoverIn[i] === 0) this.cropped[i] = 0;
       this.trampled[i] *= decay;
     }

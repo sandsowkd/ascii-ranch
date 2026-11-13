@@ -3,14 +3,64 @@ import { World, SPEEDS, angleDelta } from '../src/simulation/World';
 import { grassAppearance } from '../src/engine/grass';
 import { nearestOnRoute, perimeter } from '../src/simulation/route';
 import { Pasture } from '../src/simulation/Pasture';
+import { BirdLife } from '../src/simulation/Birds';
 
 function advance(world: World, seconds: number) { for (let i = 0; i < seconds * 60; i++) world.step(1 / 60); }
+describe('lambs and visiting birds', () => {
+  it('adds one small lamb per six adults and maintains that ratio through population changes', () => {
+    const w = new World(1200, 900, 5);
+    expect(w.lambs).toHaveLength(0); w.addSheep(); expect(w.lambs).toHaveLength(1);
+    w.reset(18); expect(w.sheep).toHaveLength(18); expect(w.lambs).toHaveLength(3);
+    for (const lamb of w.lambs) {
+      expect(lamb.size).toBeLessThan(0.6); expect(lamb.isLamb).toBe(true);
+      const parent = w.sheep.find(s => s.id === lamb.parentId)!;
+      expect(Math.hypot(lamb.x - parent.x, lamb.y - parent.y)).toBeLessThanOrEqual(49);
+    }
+    w.removeSheep(); expect(w.lambs).toHaveLength(2);
+    w.reset(80); expect(w.lambs).toHaveLength(13); expect(w.addSheep()).toBe(false);
+    w.reset(0); expect(w.animals).toHaveLength(0);
+  });
+  it('a separated lamb returns toward its adult and responds to the sheepdog', () => {
+    const w = new World(1600, 1000, 6), lamb = w.lambs[0], parent = w.sheep.find(s => s.id === lamb.parentId)!;
+    Object.assign(parent, { x: 900, y: 450, timer: 100 }); Object.assign(lamb, { x: 600, y: 450, timer: 100 });
+    advance(w, 10); expect(Math.hypot(lamb.x - parent.x, lamb.y - parent.y)).toBeLessThan(230);
+    w.toggleDog(); Object.assign(w.dog!, { x: lamb.x - 35, y: lamb.y, targetX: lamb.x - 35, targetY: lamb.y, arrived: true });
+    w.step(1 / 60); expect(lamb.state).toBe('startled'); w.cast('q'); expect(lamb.barkLeft).toBeGreaterThan(2);
+  });
+  it('pauses and resizes both generations without losing their family links', () => {
+    const w = new World(1200, 900, 18), lamb = w.lambs[0], before = { x: lamb.x, y: lamb.y, parent: lamb.parentId };
+    w.paused = true; advance(w, 8); expect(lamb.x).toBe(before.x); expect(w.birds).toHaveLength(0);
+    w.resize(1600, 1000); expect(lamb.x).toBeCloseTo(before.x * 4 / 3); expect(lamb.parentId).toBe(before.parent);
+    w.reset(); expect(w.lambs).toHaveLength(3); expect(w.birds).toHaveLength(0);
+  });
+  it('birds fly in, land to rest, then leave the field', () => {
+    const visitors = new BirdLife(), p = new Pasture(1200, 900);
+    const step = () => visitors.step(1 / 30, 1200, 900, p, [], null, []);
+    for (let i = 0; i < 153; i++) step();
+    const bird = visitors.birds[0]; expect(bird.state).toBe('arriving'); expect(bird.altitude).toBeGreaterThan(0);
+    for (let i = 0; i < 900 && bird.state === 'arriving'; i++) step();
+    expect(bird.state).toBe('landed'); expect(bird.altitude).toBe(0); expect(bird.x).toBeCloseTo(bird.landingX);
+    for (let i = 0; i < 500 && bird.state === 'landed'; i++) step();
+    expect(bird.state).toBe('departing');
+    for (let i = 0; i < 900 && visitors.birds.includes(bird); i++) step();
+    expect(visitors.birds).not.toContain(bird); expect(visitors.birds.length).toBeLessThanOrEqual(3);
+  });
+  it('a nearby dog or bark makes a resting bird take off', () => {
+    const visitors = new BirdLife(), p = new Pasture(1200, 900);
+    for (let i = 0; i < 900; i++) visitors.step(1 / 30, 1200, 900, p, [], null, []);
+    const bird = visitors.birds[0]; Object.assign(bird, { state: 'landed', age: 0 });
+    visitors.step(1 / 30, 1200, 900, p, [], { x: bird.x + 80, y: bird.y }, []);
+    expect(bird.state).toBe('departing'); Object.assign(bird, { state: 'landed', age: 0 });
+    visitors.step(1 / 30, 1200, 900, p, [], null, [{ x: bird.x + 200, y: bird.y, age: 0 }]);
+    expect(bird.state).toBe('departing'); visitors.reset(); expect(visitors.birds).toHaveLength(0);
+  });
+});
 describe('the living pasture', () => {
   it('eats a local patch without changing distant grass', () => {
     const p = new Pasture(900, 700), near = p.index(400, 300), far = p.index(80, 80);
     const initial = p.grass[near], untouched = p.grass[far];
     expect(p.bite(400, 300, 1, 25)).toBeGreaterThan(0);
-    expect(p.grass[near]).toBeLessThan(initial); expect(initial - p.grass[near]).toBeLessThanOrEqual(0.068 + 1e-6); expect(p.grass[far]).toBe(untouched);
+    expect(p.grass[near]).toBeLessThan(initial); expect(initial - p.grass[near]).toBeLessThanOrEqual(0.045 + 1e-6); expect(p.grass[far]).toBe(untouched);
   });
   it('starts with a completely edible field and paints back only the brush area', () => {
     const p = new Pasture(900, 700);
@@ -25,7 +75,7 @@ describe('the living pasture', () => {
     const p = new Pasture(900, 700), i = p.index(400, 300);
     p.grass[i] = 0; p.tread(400, 300, 1); const tread = p.trampled[i];
     for (let k = 0; k < 1200; k++) p.step(0.1);
-    expect(p.grass[i]).toBeGreaterThan(0.21); expect(p.grass[i]).toBeLessThan(0.23); expect(p.grass[i]).toBeLessThanOrEqual(p.capacity[i]);
+    expect(p.grass[i]).toBeGreaterThan(0.16); expect(p.grass[i]).toBeLessThan(0.18); expect(p.grass[i]).toBeLessThanOrEqual(p.capacity[i]);
     expect(p.trampled[i]).toBeLessThan(tread * 0.01);
   });
   it('keeps nibbled ground cropped for minutes, preserves it on resize, and lets the brush restore it', () => {
@@ -212,9 +262,9 @@ describe('staged recovery and responsive controls', () => {
   });
   it('recovers earlier-eaten ground first with only a narrow timing variation', () => {
     const p = new Pasture(900, 700); p.bite(300, 300, 5, 25);
-    for (let i = 0; i < 150; i++) p.step(0.1);
+    for (let i = 0; i < 250; i++) p.step(0.1);
     p.bite(600, 300, 5, 25);
-    for (let i = 0; i < 760; i++) p.step(0.1);
+    for (let i = 0; i < 900; i++) p.step(0.1);
     expect(p.recoverIn[p.index(300, 300)]).toBe(0); expect(p.recoverIn[p.index(600, 300)]).toBeGreaterThan(0);
     expect(p.at(300, 300)).toBeGreaterThan(p.at(600, 300)); expect(p.edibleAt(300, 300)).toBe(0);
   });
@@ -279,7 +329,7 @@ describe('shortest turns and visible grazing', () => {
     expect(Math.abs(w.dog!.heading)).toBeLessThanOrEqual(Math.PI);
   });
   it('clears a visible mouth-sized patch that remains bare after a minute', () => {
-    const p = new Pasture(900, 700); p.bite(450, 350, 2, 21);
+    const p = new Pasture(900, 700); p.bite(450, 350, 3, 21);
     expect(p.at(450, 350)).toBe(0); expect(p.at(458, 350)).toBe(0);
     expect(p.at(200, 200)).toBe(1);
     for (let i = 0; i < 600; i++) p.step(0.1);

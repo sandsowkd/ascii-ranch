@@ -45,7 +45,7 @@ The bottom-right dog button calls the dog, then offers the same recall/release a
 | **F** or **feed +**, then click / tap | Place feed, including on touch screens |
 | **Left-click** | Move the dog; hold to keep updating its target |
 | Touch: tap / hold | Tap to move the dog; hold and release to feed, or use feed + |
-| **+ / −** in the bottom-right | Add or remove one sheep, from 0 to 80 |
+| **+ / −** in the bottom-right | Add or remove one adult sheep, from 0 to 80; lambs accompany every six adults |
 | **Space** or **[ grow ]** | Toggle the regrow brush; hover to restore grass, without clicking |
 | **P** or **pause** | Pause / resume the entire meadow |
 | **start again** | Fresh grass and sheep with the current count |
@@ -57,29 +57,36 @@ Food is shared and slowly consumed, with up to ten handfuls lasting up to 120 se
 
 ## A gentler pace
 
-Ordinary sheep walk at 8–13 CSS pixels per second. Food attracts them at about 1.35 times that pace. Being chased raises their speed modestly, with a 26 px/s cap. A bark briefly allows up to 46 px/s, toward a nearby escape destination rather than a screen edge.
+Ordinary sheep walk at 7–10.5 CSS pixels per second. Food attracts them at about 1.35 times that pace. Being chased raises their speed modestly, with a 26 px/s cap. A bark briefly allows up to 46 px/s, toward a nearby escape destination rather than a screen edge.
 
-The dog walks at 116 px/s, circles at 210 px/s, sprints with E at 248 px/s, and launches from recall at 270 px/s. These speeds scale down on smaller screens. Grazing is about 24% faster, with a broad center to each bite so sheep leave a clear mouth-sized eaten patch. Cutting down a plant leaves a lasting trail as sheep move toward fresh grass.
+The dog walks at 116 px/s, circles at 210 px/s, sprints with E at 248 px/s, and launches from recall at 270 px/s. These speeds scale down on smaller screens. Grazing is about one-third slower than the previous version, with a broad center to each bite so sheep leave a clear mouth-sized eaten patch. Cutting down a plant leaves a lasting trail as sheep move toward fresh grass.
 
 ## A living pasture
 
 Every visible grass cell starts fully grown and edible. As sheep graze, a cut plant becomes bare charcoal ground, then gradually recovers through dark green `.`, brighter `:`, upright `!`/`;` shoots, leafy `v`/`/`/`\` grass and mature grass. Brightness increases within each stage. There are no brown flecks, roads or permanent bare patches.
 
-A freshly cropped cell rests for 82–90 seconds, using stable per-cell variation of at most eight seconds. After that, growth advances continuously at 0.0018 per second. Earlier-eaten patches normally recover first, so grazing history stays visible. Full recovery takes about ten to eleven minutes; young shoots are left alone until they reach edible maturity. Space still toggles an immediate regrow brush, including while paused.
+A freshly cropped cell rests for 105–114 seconds, using stable per-cell variation of at most nine seconds. After that, growth advances continuously at 0.0014 per second. Earlier-eaten patches normally recover first, so grazing history stays visible. Full recovery takes about fourteen minutes; young shoots are left alone until they reach edible maturity. Space still toggles an immediate regrow brush, including while paused.
 
 Each sheep occasionally chooses zero, one or two nearby companions for 24–49 seconds. Their presence gives fresh grazing destinations a small preference, without a shared herd magnet. Sheep compare entire grass patches, travel distance, crowding and dog pressure; good fresh grass outweighs company. This supports loosely changing pairs and trios and independent grazers. They search farther when nearby ground is depleted.
 
 Sheep retain different sizes, speed, courage, wool texture and grazing rhythms. Soft personal space and positional correction reduce piling up while allowing a little wool overlap. Heads and ears keep rendering priority over other bodies. Moving dogs trigger an earlier, predictive response; sleeping dogs keep a gentle local space. Food and bark interrupt ordinary grazing. The dog has short articulated legs, a compact collie face and a wider tail wag. Movement commits to a chosen route for about a second and blends steering, so shifting sheep do not cause left-right zigzags during E. Smaller clearance zones allow the dog to brush wool. It prefers a clear detour, uses a tighter gap when that avoids a wide detour, and permits overlap only when a clear or tight route cannot reach the destination or the dog is stuck. Occupied destinations can be reached without repeatedly bouncing off the sheep. Nearby sheep still anticipate the dog's approach during acceleration. Sheep use wider personal space and three separation passes, with a 50 px minimum center distance for average-size sheep.
 
 
-The field uses ASCII Pond’s exact warm charcoal `#1a1917` (`DARK.page: [26, 25, 23]` in `src/pond.js`): only ASCII characters carry color, with no colored tile backgrounds on terrain or animals. Reinspection of ASCII Pond's `src/koi.js` supplied the exact `t%SX8@#` density ramp, with `#` densest. The bundled Geist Mono font, small character grid, restrained colors and local glyph textures carry its influence forward. The character grid and font are one-third smaller in both dimensions, giving each animal about 2.25 times as many character cells without shrinking its silhouette. Wool uses bright cream density glyphs and little legs. Enlarged outlined oval faces have two bright `O` eyes, separate ears, a nose and a mouth; faces keep priority over overlapping wool. The smaller collie has copper glyphs and a pale chest. The open recall pen uses ASCII rails and posts. No animal images, SVG sprites or emoji are used.
+The field uses ASCII Pond’s exact warm charcoal `#1a1917` (`DARK.page: [26, 25, 23]` in `src/pond.js`): only ASCII characters carry color, with no colored tile backgrounds on terrain or animals. Reinspection of ASCII Pond's `src/koi.js` supplied the exact `t%SX8@#` density ramp, with `#` densest. The bundled Geist Mono font, small character grid, restrained colors and local glyph textures carry its influence forward. The character grid and font are one-third smaller in both dimensions, giving each animal about 2.25 times as many character cells without shrinking its silhouette. Wool uses bright cream density glyphs and little legs. Larger stone-colored faces have cream outlines, longer drooping ears, a woolly forelock, two larger, brighter uppercase `O` eyes, paired nostrils and a split `Y` lip; faces keep priority over overlapping wool. The smaller collie has copper glyphs and a pale chest. The open recall pen uses ASCII rails and posts. No animal images, SVG sprites or emoji are used.
+
+## Little families and visitors
+
+Each six adult sheep bring one lamb: the default meadow has 18 adults and 3 lambs. Lambs are roughly half adult size, nibble smaller patches more slowly, and choose grazing spots near their own adult. They catch up when separated and respond to the same dog, bark and herding controls. Adding or removing adults adjusts the lamb count automatically; the flock caption shows the number of lambs. The adult counter and saved population keep their existing meaning.
+
+Small turquoise, coral and gold birds occasionally fly into the field, settle on fresh open grass, peck for a few seconds, and fly away. Their wings flap in flight and fold when landed. A nearby dog or bark sends them airborne early. The first visit starts after about five seconds, subsequent visits are spaced 17–30 seconds apart, and no more than three birds visit at once. Pause, reset and resize include both lambs and birds.
 
 ## Implementation
 
 ```text
 src/
   simulation/Pasture.ts   retained grass, consumption, regrowth and trampled paths
-  simulation/World.ts    sheep, food, movement, local companions and ability clocks
+  simulation/World.ts    adults, lamb families, food, movement and ability clocks
+  simulation/Birds.ts    occasional bird visits, landing and takeoff
   simulation/navigation.ts  obstacle-aware paths and continuous collision checks
   simulation/route.ts    rounded flock envelopes and perimeter navigation
   engine/grass.ts        gradual grass glyph and color stages

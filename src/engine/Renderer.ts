@@ -1,12 +1,13 @@
 import { clamp, hash3, lineGlyph } from '../vendor/pond-math';
 import { DENSITY_GLYPHS, grassAppearance } from './grass';
+import type { Bird } from '../simulation/Birds';
 import type { Sheep, World } from '../simulation/World';
 
 /** Pond's density ramp, local ink and cached font, adapted into a living pasture.
  * Math helpers and density ramp derive from stqfdyr/ascii-pond (MIT).
  * Copyright (c) 2026 stqfdyr; public/licenses/ascii-pond-MIT.txt. */
 
-const GLYPHS = " tSX" + ".,:;'`|/\\v!+*ox@O%#8-=~^<>()[]zZ";
+const GLYPHS = " tSX" + ".,:;'`|/\\v!+*ox@O%#8-=~^<>()[]zZY";
 export const BG = '#1a1917';
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
@@ -35,15 +36,18 @@ export class Renderer {
     this.repaintAll = true;
     const { cellW, cellH } = this.world.pasture;
     this.aw = Math.ceil(cellW * this.dpr); this.ah = Math.ceil(cellH * this.dpr);
-    this.atlas.width = this.aw * this.atlasCols; this.atlas.height = this.ah * 32 * 8;
+    this.atlas.width = this.aw * this.atlasCols; this.atlas.height = this.ah * 32 * 12;
     const ctx = this.atlas.getContext('2d')!;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `400 ${this.ah * 0.82}px "Geist Mono", monospace`;
-    const lows = [[48, 72, 35], [28, 24, 16], [126, 128, 105], [114, 120, 97], [99, 73, 43], [69, 69, 51], [32, 51, 29], [65, 70, 50]];
-    const highs = [[149, 182, 100], [75, 59, 34], [248, 243, 219], [246, 244, 218], [230, 182, 115], [229, 208, 136], [84, 123, 54], [169, 178, 138]];
-    for (let family = 0; family < 8; family++) for (let level = 0; level < 32; level++) {
+    const lows = [[48, 72, 35], [28, 24, 16], [126, 128, 105], [114, 120, 97], [99, 73, 43], [69, 69, 51], [32, 51, 29], [65, 70, 50], [111, 115, 105], [40, 111, 126], [138, 66, 74], [144, 113, 42]];
+    const highs = [[149, 182, 100], [75, 59, 34], [248, 243, 219], [246, 244, 218], [230, 182, 115], [229, 208, 136], [84, 123, 54], [169, 178, 138], [216, 215, 194], [116, 222, 218], [245, 153, 135], [246, 209, 107]];
+    for (let family = 0; family < lows.length; family++) for (let level = 0; level < 32; level++) {
       const t = level / 31, lo = lows[family], hi = highs[family];
       ctx.fillStyle = `rgb(${Math.round(lo[0] + (hi[0] - lo[0]) * t)},${Math.round(lo[1] + (hi[1] - lo[1]) * t)},${Math.round(lo[2] + (hi[2] - lo[2]) * t)})`;
-      for (let g = 0; g < GLYPHS.length; g++) ctx.fillText(GLYPHS[g], g * this.aw + this.aw / 2, (family * 32 + level) * this.ah + this.ah / 2 + this.dpr * 0.35);
+      for (let g = 0; g < GLYPHS.length; g++) {
+        ctx.font = `${family === 3 && GLYPHS[g] === 'O' ? 500 : 400} ${this.ah * (family === 3 && GLYPHS[g] === 'O' ? 0.98 : 0.82)}px "Geist Mono", monospace`;
+        ctx.fillText(GLYPHS[g], g * this.aw + this.aw / 2, (family * 32 + level) * this.ah + this.ah / 2 + this.dpr * 0.35);
+      }
     }
 
   }
@@ -92,25 +96,31 @@ export class Renderer {
     return;
     }
     const nibble = s.state === 'grazing' || s.state === 'following' && Math.hypot(s.vx, s.vy) < 3 ? Math.sin(w.time * 5 + s.phase) * 2.5 : 0;
-    const hx = s.x + dx * (rx + 9 * scale + nibble), hy = s.y + dy * (rx + 9 * scale + nibble);
-    // A separate, outlined oval face stays legible over wool and grass.
-    const headR = 13 * scale;
+    const hx = s.x + dx * (rx + 11 * scale + nibble), hy = s.y + dy * (rx + 11 * scale + nibble);
+    // A longer stone-colored face, cream rim and wide drooping ears read on bare soil.
+    const headR = 17 * scale;
     for (let r = Math.floor((hy - headR) / p.cellH); r <= Math.ceil((hy + headR) / p.cellH); r++) for (let c = Math.floor((hx - headR) / p.cellW); c <= Math.ceil((hx + headR) / p.cellW); c++) {
       const x = (c + 0.5) * p.cellW, y = (r + 0.5) * p.cellH, ox = x - hx, oy = y - hy;
-      const along = (ox * dx + oy * dy) / (11 * scale), side = (ox * sx + oy * sy) / (10 * scale);
+      const along = (ox * dx + oy * dy) / (15 * scale), side = (ox * sx + oy * sy) / (12.5 * scale);
       const distance = along * along + side * side;
       if (distance > 1) continue;
       const nx = dx * along + sx * side, ny = dy * along + sy * side;
-      this.put(x, y, distance > 0.48 ? lineGlyph(-ny, nx) : ':', distance > 0.48 ? 0.6 : 0.08, 7, 2);
+      this.put(x, y, distance > 0.67 ? lineGlyph(-ny, nx) : ':', distance > 0.67 ? 0.8 : 0.58, distance > 0.67 ? 2 : 8, 2);
     }
     for (const side of [-1, 1]) {
-      const ex = hx - dx * 4 * scale + sx * side * 14 * scale, ey = hy - dy * 4 * scale + sy * side * 14 * scale;
-      this.put(ex, ey, lineGlyph(dx + sx * side, dy + sy * side), 0.8, 2, 3);
-      this.put(ex - dx * 4 * scale + sx * side * 2 * scale, ey - dy * 4 * scale + sy * side * 2 * scale, side < 0 ? '(' : ')', 0.65, 2, 3);
-      this.put(hx - dx * 2 * scale + sx * side * 5.8 * scale, hy - dy * 2 * scale + sy * side * 5.8 * scale, 'O', 0.95, 3, 4);
+      // Two rows of ink make the ears visibly wider than stray wool or legs.
+      for (let j = 0; j < 3; j++) {
+        const along = -7 - j * 1.5, lateral = side * (12 + j * 4.5);
+        const ex = hx + dx * along * scale + sx * lateral * scale, ey = hy + dy * along * scale + sy * lateral * scale;
+        this.put(ex, ey, j === 2 ? (side < 0 ? '(' : ')') : lineGlyph(sx * side - dx * 0.35, sy * side - dy * 0.35), 0.88, 2, 3);
+        if (j === 1) this.put(ex + dx * 4 * scale, ey + dy * 4 * scale, ':', 0.72, 8, 3);
+      }
+      this.put(hx - dx * 3 * scale + sx * side * 7.5 * scale, hy - dy * 3 * scale + sy * side * 7.5 * scale, 'O', 1, 3, 4);
     }
-    this.put(hx + dx * 7 * scale, hy + dy * 7 * scale, '.', 0.9, 3, 3);
-    this.put(hx + dx * 11 * scale, hy + dy * 11 * scale, lineGlyph(sx, sy), 0.55, 7, 3);
+    // Woolly forelock, two nostrils and a split lip distinguish the long sheep muzzle.
+    this.put(hx - dx * 12 * scale, hy - dy * 12 * scale, '@', 0.95, 2, 3);
+    for (const side of [-1, 1]) this.put(hx + dx * 9 * scale + sx * side * 3 * scale, hy + dy * 9 * scale + sy * side * 3 * scale, '.', 0.35, 8, 3);
+    this.put(hx + dx * 14 * scale, hy + dy * 14 * scale, 'Y', 0.88, 2, 3);
 
   }
   private stroke(x1: number, y1: number, x2: number, y2: number, level: number, family: number) {
@@ -165,6 +175,27 @@ export class Renderer {
     // An unobtrusive copper selection mark makes the dog easy to pick out.
     this.put(d.x - 10, d.y - 25 * scale, '[', 0.5, 4);
     this.put(d.x + 10, d.y - 25 * scale, ']', 0.5, 4);
+  }
+  private bird(b: Bird) {
+    const w = this.world, scale = w.scale, flying = b.state !== 'landed';
+    const x = b.x, y = b.y - b.altitude * 28 * scale;
+    const dx = Math.cos(b.heading), dy = Math.sin(b.heading), sx = -dy, sy = dx;
+    const family = 9 + b.color, priority = flying ? 5 : 1;
+    const dot = (along: number, side: number, glyph: string, level = 0.9, ink = family) => this.put(x + (dx * along + sx * side) * scale, y + (dy * along + sy * side) * scale, glyph, level, ink, priority);
+    if (!flying) {
+      this.shadow(x + 2, y + 4, 12 * scale, 7 * scale);
+      dot(-2, -6, '.', 0.8, 5); dot(-2, 6, '.', 0.8, 5);
+    }
+    dot(-5, 0, '%'); dot(0, 0, '#'); dot(1, -4, ':', 0.7); dot(1, 4, ':', 0.7);
+    const peck = flying ? 0 : Math.max(0, Math.sin(w.time * 3 + b.phase)) * 3;
+    dot(8 + peck, 0, 'o', 0.96); dot(13 + peck, 0, dx < 0 ? '<' : '>', 0.9, 11);
+    dot(-12, 0, '~', 0.7); dot(-17, 0, '-', 0.5);
+    if (flying) {
+      const flap = Math.sin(w.time * 19 + b.phase), span = 7 + Math.abs(flap) * 13;
+      for (const side of [-1, 1]) for (let j = 1; j <= 3; j++) {
+        dot(-j * 2, side * span * j / 3, lineGlyph(sx * side * span - dx * 6, sy * side * span - dy * 6), 1 - j * 0.09);
+      }
+    }
   }
   private ring(x: number, y: number, radius: number, strength: number, family: number) {
     const p = this.world.pasture, band = p.cellW * 1.15;
@@ -248,12 +279,15 @@ export class Renderer {
     }
     for (const bark of w.barks) this.barkRipple(bark.x, bark.y, bark.age);
     this.pen();
-    for (const s of w.sheep) this.shadow(s.x + 4, s.y + 7, 25.5 * w.scale * s.size + 8, 17.5 * w.scale * s.size + 5);
-    for (const s of w.sheep) this.sheep(s);
+    for (const b of w.birds) if (b.state === 'landed') this.bird(b);
+    const animals = w.animals;
+    for (const s of animals) this.shadow(s.x + 4, s.y + 7, 25.5 * w.scale * s.size + 8, 17.5 * w.scale * s.size + 5);
+    for (const s of animals) this.sheep(s);
     this.dog();
     // Faces and ears always survive another animal's wool or shadow.
-    for (const s of w.sheep) this.sheep(s, true);
+    for (const s of animals) this.sheep(s, true);
     this.sleep();
+    for (const b of w.birds) if (b.state !== 'landed') this.bird(b);
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); ctx.fillStyle = BG; if (this.repaintAll) ctx.fillRect(0, 0, w.width, w.height); ctx.imageSmoothingEnabled = false;
     for (let i = 0; i < this.codes.length; i++) {
       // Retain unchanged grass pixels. Snap cell edges to device pixels so erasing

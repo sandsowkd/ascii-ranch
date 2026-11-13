@@ -104,6 +104,7 @@ export class Controller {
   private wake = () => { document.body.classList.remove('idle'); clearTimeout(this.idleTimer); this.idleTimer = setTimeout(() => document.body.classList.add('idle'), 5500); };
   sync() {
     document.querySelector('#sheep-count')!.textContent = String(this.world.sheep.length);
+    document.querySelector('#flock-caption')!.textContent = this.world.lambs.length ? `your flock · ${this.world.lambs.length} ${this.world.lambs.length === 1 ? 'lamb' : 'lambs'}` : 'your little flock';
     document.querySelector<HTMLButtonElement>('#remove-sheep')!.disabled = this.world.sheep.length === 0;
     document.querySelector<HTMLButtonElement>('#add-sheep')!.disabled = this.world.sheep.length === 80;
     const dog = document.querySelector<HTMLButtonElement>('#dog-button')!;
