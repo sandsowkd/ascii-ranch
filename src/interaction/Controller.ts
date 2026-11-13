@@ -9,7 +9,8 @@ export class Controller {
   private downAt = 0; private startX = 0; private startY = 0;
   private pointerId: number | null = null; private button = -1; private dragged = false;
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
-  private idleTimer: ReturnType<typeof setTimeout> | undefined;
+  private settings = document.querySelector<HTMLElement>('#settings-panel')!;
+  private settingsButton = document.querySelector<HTMLButtonElement>('#settings-toggle')!;
   private lastUI = -1;
   constructor(private canvas: HTMLCanvasElement, private world: World, private renderer: Renderer) {
     this.pointer.x = world.width * 0.5; this.pointer.y = world.height * 0.5;
@@ -28,28 +29,32 @@ export class Controller {
     document.querySelector('#regrow-button')!.addEventListener('click', () => this.toggleRegrow(), opts);
     document.querySelector('#pause')!.addEventListener('click', () => this.setPaused(!world.paused), opts);
     document.querySelector('#reset')!.addEventListener('click', () => { this.cancel(); world.reset(); world.toggleDog(); this.sync(); renderer.render(); this.toast('a fresh patch of green.'); }, opts);
-    document.querySelector('#help-toggle')!.addEventListener('click', () => {
-      const el = document.querySelector<HTMLElement>('#help')!; el.hidden = !el.hidden;
-      document.querySelector('#help-toggle')!.setAttribute('aria-expanded', String(!el.hidden));
-    }, opts);
+    this.settingsButton.addEventListener('click', () => this.setSettingsOpen(this.settings.hidden), opts);
+    document.querySelector('#settings-close')!.addEventListener('click', () => this.setSettingsOpen(false), opts);
     for (const el of document.querySelectorAll<HTMLButtonElement>('[data-ability]')) el.addEventListener('click', () => this.cast(el.dataset.ability as Ability), opts);
     window.addEventListener('keydown', e => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.altKey || e.ctrlKey || e.metaKey || e.repeat) return;
+      if (e.code === 'Space' && e.target instanceof HTMLButtonElement) return;
       const key = e.key.toLowerCase();
       if (['q', 'w', 'e', 'r'].includes(key)) { e.preventDefault(); this.cast(key as Ability); }
       if (key === 'f') this.toggleFeed();
       if (e.code === 'Space') { e.preventDefault(); this.toggleRegrow(); }
       if (key === 'p') { e.preventDefault(); this.setPaused(!world.paused); }
-      if (key === 'h') document.body.classList.toggle('hide-ui');
-      if (e.key === 'Escape') { this.feedMode = false; this.regrowMode = false; this.sync(); document.querySelector<HTMLElement>('#help')!.hidden = true; document.querySelector('#help-toggle')!.setAttribute('aria-expanded', 'false'); document.body.classList.remove('hide-ui'); }
-      this.wake();
+      if (key === 'h') this.setSettingsOpen(this.settings.hidden);
+      if (e.key === 'Escape') { this.feedMode = false; this.regrowMode = false; this.sync(); if (!this.settings.hidden) this.setSettingsOpen(false); }
     }, opts);
-    window.addEventListener('pointermove', this.wake, opts); window.addEventListener('pointerdown', this.wake, opts); window.addEventListener('focusin', this.wake, opts);
-    this.sync(); this.wake();
+    this.sync();
+  }
+  private setSettingsOpen(open: boolean) {
+    this.cancel(); this.settings.hidden = !open; this.settingsButton.setAttribute('aria-expanded', String(open));
+    if (open) { this.sync(); this.settings.focus({ preventScroll: true }); }
+    else this.settingsButton.focus({ preventScroll: true });
   }
   private coords(e: PointerEvent) { const r = this.canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
   private down = (e: PointerEvent) => {
     if (!e.isPrimary || this.pointerId !== null || ![0, 2].includes(e.button)) return;
+    if (!this.settings.hidden) { e.preventDefault(); this.setSettingsOpen(false); return; }
+    this.canvas.focus({ preventScroll: true });
     e.preventDefault(); this.pointerId = e.pointerId; this.button = e.button;
     this.canvas.setPointerCapture(e.pointerId); this.pointer = this.coords(e);
     this.startX = this.pointer.x; this.startY = this.pointer.y; this.downAt = performance.now(); this.dragged = false;
@@ -58,6 +63,7 @@ export class Controller {
     if (e.button === 0 && e.pointerType !== 'touch' && !this.feedMode) { this.world.sendDog(this.pointer.x, this.pointer.y); this.sync(); }
   };
   private move = (e: PointerEvent) => {
+    if (!this.settings.hidden) return;
     if (this.pointerId !== null && e.pointerId !== this.pointerId) return;
     const previous = this.pointer; this.pointer = this.coords(e);
     if (this.regrowMode) { this.paint(previous, this.pointer); return; }
@@ -84,9 +90,10 @@ export class Controller {
       this.toast(text[key]); this.sync(); this.renderer.render();
     }
   }
-  private toggleFeed() { this.feedMode = !this.feedMode; this.regrowMode = false; this.sync(); if (this.feedMode) this.toast('click a patch of grass to scatter feed.'); }
+  private toggleFeed() { this.feedMode = !this.feedMode; this.regrowMode = false; this.sync(); if (this.feedMode) { this.toast('click a patch of grass to scatter feed.'); if (!this.settings.hidden) this.setSettingsOpen(false); } }
   private toggleRegrow() {
     this.regrowMode = !this.regrowMode; this.feedMode = false; this.cancel(); this.sync();
+    if (!this.settings.hidden) this.setSettingsOpen(false);
     if (this.regrowMode) { this.paint(this.pointer, this.pointer); this.toast('regrow brush on. hover to grow; space to finish.'); }
     else this.toast('regrow brush off.');
   }
@@ -101,7 +108,6 @@ export class Controller {
     const el = document.querySelector<HTMLElement>('#toast')!; el.textContent = text; el.classList.add('show');
     clearTimeout(this.toastTimer); this.toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
   }
-  private wake = () => { document.body.classList.remove('idle'); clearTimeout(this.idleTimer); this.idleTimer = setTimeout(() => document.body.classList.add('idle'), 5500); };
   sync() {
     document.querySelector('#sheep-count')!.textContent = String(this.world.sheep.length);
     document.querySelector('#flock-caption')!.textContent = this.world.lambs.length ? `your flock · ${this.world.lambs.length} ${this.world.lambs.length === 1 ? 'lamb' : 'lambs'}` : 'your little flock';
@@ -111,7 +117,7 @@ export class Controller {
     dog.setAttribute('aria-pressed', String(!!this.world.dog)); dog.setAttribute('aria-label', this.world.dog ? this.world.dog.recallReady ? 'Release sheepdog' : 'Recall sheepdog' : 'Call sheepdog');
     document.querySelector('#dog-label')!.textContent = this.world.dog ? this.world.dog.recallReady ? 'send dog out' : 'recall dog' : 'call sheepdog';
     const pause = document.querySelector<HTMLButtonElement>('#pause')!;
-    pause.textContent = this.world.paused ? 'resume' : 'pause'; pause.setAttribute('aria-pressed', String(this.world.paused)); pause.setAttribute('aria-label', this.world.paused ? 'Resume meadow' : 'Pause meadow');
+    pause.textContent = this.world.paused ? '[ resume ]' : '[ pause ]'; pause.setAttribute('aria-pressed', String(this.world.paused)); pause.setAttribute('aria-label', this.world.paused ? 'Resume meadow' : 'Pause meadow');
     document.querySelector<HTMLElement>('#paused-note')!.hidden = !this.world.paused;
     document.querySelector('#feed-button')!.setAttribute('aria-pressed', String(this.feedMode)); this.canvas.classList.toggle('feed-mode', this.feedMode);
     document.querySelector('#regrow-button')!.setAttribute('aria-pressed', String(this.regrowMode));
@@ -129,8 +135,6 @@ export class Controller {
       button.setAttribute('aria-label', `${key.toUpperCase()} ${ABILITIES[key].name}`);
       if (key === 'r') button.querySelector('.ability-name')!.textContent = d?.recallReady ? 'release' : 'recall';
     }
-    const grazing = this.world.sheep.filter(s => s.state === 'grazing').length;
-    document.querySelector('#note')!.textContent = !this.world.sheep.length ? 'a quiet meadow, waiting for company.' : this.world.dog?.sleeping ? 'a good dog deserves a little nap.' : grazing > this.world.sheep.length * 0.5 ? 'nothing to do. nowhere to be.' : 'the grass is greener a little further on.';
   }
-  destroy() { this.cancel(); this.abort.abort(); clearTimeout(this.toastTimer); clearTimeout(this.idleTimer); }
+  destroy() { this.cancel(); this.abort.abort(); clearTimeout(this.toastTimer); }
 }

@@ -11,32 +11,38 @@
 </head>
 <body>
   <canvas id="meadow" tabindex="0" aria-label="Living ASCII meadow. Left-click to move the sheepdog. Right-click to feed. Space toggles the regrow brush. Q bark, W circle every sheep, E sprint. R recall to the pen; R again sprints to the cursor. No cooldowns."></canvas>
-  <header class="topbar chrome">
-    <div class="identity"><h1>ascii meadow <span aria-hidden="true">/</span></h1><p>a little room to roam.</p></div>
-    <nav aria-label="Meadow controls"><button id="regrow-button" aria-label="Regrow grass brush" aria-pressed="false" title="Space · Hover to regrow grass">[ grow ]</button><button id="pause" aria-label="Pause meadow" aria-pressed="false" title="Pause · P">pause</button><button id="reset" title="Start a fresh meadow">start again</button><button id="help-toggle" aria-label="Show controls" aria-expanded="false" aria-controls="help">[ ? ]</button></nav>
-  </header>
-  <aside id="help" class="help chrome" hidden aria-label="How to play">
-    <p>an unhurried little pasture.</p>
-    <dl><dt>left-click</dt><dd>send the dog to that spot</dd><dt>right-click</dt><dd>scatter a handful of feed</dd><dt>Q · bark</dt><dd>sheep move as the ripple reaches them</dd><dt>W · come by</dt><dd>go around every last sheep</dd><dt>E · sprint</dt><dd>race toward your move target</dd><dt>R · recall</dt><dd>return to pen; R again races to cursor</dd><dt>F, then click</dt><dd>scatter a handful of feed</dd><dt>space</dt><dd>toggle regrow brush; hover to paint</dd><dt>P / H</dt><dd>pause / hide the interface</dd></dl>
-    <span>no cooldowns. the grass grows back. take your time.</span>
-  </aside>
-  <footer class="bottom chrome">
-    <div class="field-notes"><p id="note">nothing to do. nowhere to be.</p><p class="instructions"><span class="desktop-hint">left-click to move</span><span class="touch-hint">tap the grass to move</span><i>·</i><span class="desktop-hint">right-click to feed</span><span class="touch-hint">hold to feed</span></p></div>
-    <div class="flock-controls" aria-label="Sheep and sheepdog controls">
-      <div class="sheep-controls"><span class="control-caption" id="flock-caption">your flock · 3 lambs</span><div class="counter-row"><button id="remove-sheep" aria-label="Remove a sheep" title="Remove one sheep">−</button><span class="sheep-count"><output id="sheep-count">18</output> sheep</span><button id="add-sheep" aria-label="Add a sheep" title="Add one sheep">+</button></div></div>
-      <span class="control-divider" aria-hidden="true"></span>
-      <button id="dog-button" aria-label="Call sheepdog" aria-pressed="false"><span class="dog-mark" aria-hidden="true">&gt;</span><span id="dog-label">call sheepdog</span></button>
-      <button id="feed-button" aria-label="Place feed" title="F · Select, then click the meadow to scatter feed" aria-pressed="false">feed<span aria-hidden="true"> +</span></button>
-    </div>
-  </footer>
-  <nav class="abilities chrome" aria-label="Sheepdog abilities">
-    <button data-ability="q" aria-label="Q Bark" title="Q · Bark: a quick ripple nudges sheep on contact. No cooldown."><kbd>Q</kbd><span class="ability-name">bark</span><span class="cooldown" aria-hidden="true"></span></button>
-    <button data-ability="w" aria-label="W Come By" title="W · Come By: follow a rounded outline around every sheep. No cooldown."><kbd>W</kbd><span class="ability-name">come by</span><span class="cooldown" aria-hidden="true"></span></button>
-    <button data-ability="e" aria-label="E Sprint" title="E · Sprint: dash toward the move target. No cooldown."><kbd>E</kbd><span class="ability-name">sprint</span><span class="cooldown" aria-hidden="true"></span></button>
-    <button data-ability="r" aria-label="R Recall / Release" title="R · Recall to the pen. Press R again to sprint to the cursor. No cooldown."><kbd>R</kbd><span class="ability-name">recall</span><span class="cooldown" aria-hidden="true"></span></button>
-  </nav>
-  <div id="toast" role="status" aria-live="polite"></div>
-  <div id="paused-note" hidden>the meadow rests.<span>P to carry on</span></div>
+  <button id="settings-toggle" aria-label="Meadow settings" aria-expanded="false" aria-controls="settings-panel"><span aria-hidden="true">[*]</span></button>
+  <section id="settings-panel" role="dialog" aria-labelledby="settings-title" tabindex="-1" hidden>
+    <header class="settings-header"><h1 id="settings-title">settings</h1><button id="settings-close" aria-label="Close settings">[ x ]</button></header>
+    <section class="settings-section" aria-label="Flock controls">
+      <div class="flock-heading"><h2>flock</h2><span id="flock-caption">your flock · 3 lambs</span></div>
+      <div class="counter-row"><button id="remove-sheep" aria-label="Remove a sheep" title="Remove one sheep">[ - ]</button><span class="sheep-count"><output id="sheep-count">18</output> sheep</span><button id="add-sheep" aria-label="Add a sheep" title="Add one sheep">[ + ]</button></div>
+    </section>
+    <section class="settings-section" aria-label="Sheepdog controls">
+      <button id="dog-button" class="wide-action" aria-label="Release sheepdog" aria-pressed="true"><span aria-hidden="true">&gt;</span><span id="dog-label">send dog out</span><kbd>R</kbd></button>
+      <nav class="abilities" aria-label="Sheepdog abilities">
+        <button data-ability="q" aria-label="Q Bark" title="Bark: a quick ripple nudges sheep on contact."><kbd>Q</kbd><span class="ability-name">bark</span><span class="cooldown" aria-hidden="true"></span></button>
+        <button data-ability="w" aria-label="W Come By" title="Come By: follow a rounded outline around every sheep."><kbd>W</kbd><span class="ability-name">come by</span><span class="cooldown" aria-hidden="true"></span></button>
+        <button data-ability="e" aria-label="E Sprint" title="Sprint toward the move target."><kbd>E</kbd><span class="ability-name">sprint</span><span class="cooldown" aria-hidden="true"></span></button>
+        <button data-ability="r" aria-label="R Recall / Release" title="Recall to the pen, then release toward the cursor."><kbd>R</kbd><span class="ability-name">release</span><span class="cooldown" aria-hidden="true"></span></button>
+      </nav>
+    </section>
+    <section class="settings-section" aria-label="Meadow tools">
+      <h2>meadow</h2>
+      <div class="action-grid">
+        <button id="feed-button" aria-label="Place feed" aria-pressed="false">[ feed + ]<kbd>F</kbd></button>
+        <button id="regrow-button" aria-label="Regrow grass brush" aria-pressed="false">[ grow ]<kbd>space</kbd></button>
+        <button id="pause" aria-label="Pause meadow" aria-pressed="false">[ pause ]</button>
+        <button id="reset" title="Start a fresh meadow">[ start again ]</button>
+      </div>
+      <p id="paused-note" hidden>paused · P to resume</p>
+    </section>
+    <section id="help" class="settings-section" aria-label="How to play">
+      <h2>how to play</h2>
+      <dl><dt class="desktop-hint">left-click</dt><dd class="desktop-hint">send the dog to that spot</dd><dt class="touch-hint">tap</dt><dd class="touch-hint">send the dog to that spot</dd><dt class="desktop-hint">right-click</dt><dd class="desktop-hint">scatter a handful of feed</dd><dt class="touch-hint">hold</dt><dd class="touch-hint">scatter a handful of feed</dd><dt>Q · bark</dt><dd>nudge sheep with a quick ripple</dd><dt>W · come by</dt><dd>circle and gather every sheep</dd><dt>E · sprint</dt><dd>race toward the move target</dd><dt>R · recall</dt><dd>return to pen; again to release</dd><dt>F, then click</dt><dd>place feed without moving the dog</dd><dt>space</dt><dd>toggle grass brush; hover to grow</dd><dt>P</dt><dd>pause / resume</dd><dt>H / escape</dt><dd>toggle settings / close &amp; cancel tools</dd></dl>
+    </section>
+    <div id="toast" role="status" aria-live="polite"></div>
+  </section>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

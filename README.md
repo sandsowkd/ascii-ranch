@@ -2,6 +2,8 @@
 
 A little room to roam. A full-screen meadow of grass, clover, tiny flowers and sheep, drawn entirely with ASCII glyphs. Sheep graze, leave eaten patches, move on to greener grass and follow scattered feed. Guide a small sheepdog and the flock with point-and-click movement and four abilities.
 
+The meadow opens with only a small ASCII `[*]` button in the top-right corner. Click it for flock controls, dog abilities, grass tools, pause/reset and the complete shortcut guide. Press H to toggle the panel, or Escape to close it. Keyboard shortcuts continue to work with the panel closed.
+
 ![ASCII Meadow](docs/desktop.png)
 
 ## Run
@@ -35,7 +37,7 @@ All four actions can be used again immediately: **there are no cooldowns**.
 | **E** | **Sprint** | A short sprint toward its current destination. When idle, the dog sprints toward the cursor. |
 | **R** | **Recall / Release** | In the meadow: return through the left gate to the small fenced pen. At home, or after starting a recall: sprint all the way to the cursor, with no click required. The second press also works while the dog is on its way home. |
 
-The dog starts resting fully inside the pen on page load and after starting again. The compact 120 × 72 px pen is a low rectangle, with four corner posts, one intermediate post on each long side and none on either short side. It is slightly taller than the earlier 2:1 version. The bottom-right dog button offers the same recall/release action as R. An idle dog dozes after seven seconds and releases drifting `z`/`Z` glyphs. Movement or an ability wakes it immediately. A sleeping dog keeps a gentle 56 px personal-space radius. A moving dog influences a wider 172 px radius (205 px during a sprint), and sheep anticipate its approach about half a second ahead. An awake stationary dog keeps a smaller 92 px zone. A recalled dog rests inside its pen. The pen has thin, single-character brown ASCII rails and a hinged gate on the left. The door swings open before the dog passes, then closes once the dog is safely clear or resting inside. The dog walks straight through the doorway so its head, paws and tail fit the shallow pen; field navigation and continuous collision checks keep it away from the closed sides, including during a sprint. R releases the dog immediately when it is already at home. Sheep keep their entire silhouettes clear of the pen. Come By detours around the fence and measures progress along its route so detours do not shorten the lap. On arrival the dog keeps its last heading, including when it falls asleep. Heading updates use the signed shortest angle and stay normalized, so repeated Come By laps never produce a 270-degree turn at a 90-degree corner.
+The dog starts resting fully inside the pen on page load and after starting again. The compact 120 × 72 px pen is a low rectangle, with four corner posts, one intermediate post on each long side and none on either short side. It is slightly taller than the earlier 2:1 version. The dog button inside settings offers the same recall/release action as R. An idle dog dozes after seven seconds and releases drifting `z`/`Z` glyphs. Movement or an ability wakes it immediately. A sleeping dog keeps a gentle 56 px personal-space radius. A moving dog influences a wider 172 px radius (205 px during a sprint), and sheep anticipate its approach about half a second ahead. An awake stationary dog keeps a smaller 92 px zone. A recalled dog rests inside its pen. The pen has thin, single-character brown ASCII rails and a hinged gate on the left. The door swings open before the dog passes, then closes once the dog is safely clear or resting inside. The dog walks straight through the doorway so its head, paws and tail fit the shallow pen; field navigation and continuous collision checks keep it away from the closed sides, including during a sprint. R releases the dog immediately when it is already at home. Sheep keep their entire silhouettes clear of the pen. Come By detours around the fence and measures progress along its route so detours do not shorten the lap. On arrival the dog keeps its last heading, including when it falls asleep. Heading updates use the signed shortest angle and stay normalized, so repeated Come By laps never produce a 270-degree turn at a 90-degree corner.
 
 ## Feeding and other controls
 
@@ -45,13 +47,13 @@ The dog starts resting fully inside the pen on page load and after starting agai
 | **F** or **feed +**, then click / tap | Place feed, including on touch screens |
 | **Left-click** | Move the dog; hold to keep updating its target |
 | Touch: tap / hold | Tap to move the dog; hold and release to feed, or use feed + |
-| **+ / −** in the bottom-right | Add or remove one adult sheep, from 0 to 80; lambs accompany every six adults |
+| **[ + ] / [ - ]** in settings | Add or remove one adult sheep, from 0 to 80; lambs accompany every six adults |
 | **Space** or **[ grow ]** | Toggle the regrow brush; hover to restore grass, without clicking |
 | **P** or **pause** | Pause / resume the entire meadow |
 | **start again** | Fresh grass and sheep with the current count |
-| **H** | Hide / show the interface |
-| **Escape** | Close help, cancel feed or regrow placement, show the interface |
-| **[ ? ]** | Open the compact control guide |
+| **H** | Open / close settings |
+| **Escape** | Close settings and cancel feed or regrow placement |
+| **[*]** in the top-right | Open settings and the complete control guide |
 
 Food is shared and slowly consumed, with up to ten handfuls lasting up to 120 seconds. The sheep count persists in localStorage; the app works if storage is blocked. All other simulation state is temporary.
 

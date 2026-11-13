@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 const state = (page: Page): Promise<any> => page.evaluate(() => (window as any).__meadow.snapshot());
+const openSettings = async (page: Page) => { if (await page.locator('#settings-panel').isHidden()) await page.locator('#settings-toggle').click(); };
 test.beforeEach(async ({ page }) => { await page.goto('/?debug'); await page.evaluate(() => document.fonts.ready); });
 
 test('living grass, grazing sheep, full canvas and no errors', async ({ page }, info) => {
@@ -46,31 +47,31 @@ test('W covers the entire flock; R recalls then launches straight to the cursor'
   expect(s.dog.launching).toBe(true); expect(s.dog.targetX).toBeCloseTo(x, 0); expect(s.dog.targetY).toBeCloseTo(y, 0);
   await page.keyboard.press('q'); const t = (await state(page)).time;
   await expect.poll(async () => (await state(page)).time).toBeGreaterThan(t + 0.3);
-  const toast = await page.locator('#toast').boundingBox(), abilities = await page.locator('.abilities').boundingBox();
-  expect(toast!.y + toast!.height).toBeLessThan(abilities!.y);
+  await expect(page.locator('#toast')).toBeHidden(); await expect(page.locator('#settings-panel')).toBeHidden();
   await page.screenshot({ path: `docs/${info.project.name}-herding.png` });
 });
 
 test('single right-clicks feed without calling or redirecting the dog; flock controls persist', async ({ page }) => {
-  const first = await state(page);
+  const first = await state(page); await openSettings(page);
   await page.getByRole('button', { name: 'Add a sheep', exact: true }).click(); expect((await state(page)).count).toBe(19);
-  await page.reload(); expect((await state(page)).count).toBe(19);
+  await page.reload(); expect((await state(page)).count).toBe(19); await openSettings(page);
   await page.getByRole('button', { name: 'Remove a sheep', exact: true }).click(); expect((await state(page)).count).toBe(18);
+  await page.locator('#settings-close').click();
   await page.mouse.click(first.width * 0.5, first.height * 0.4, { button: 'right' });
   expect((await state(page)).feed.length).toBe(1); expect((await state(page)).dog.atHome).toBe(true);
   await page.mouse.click(first.width * 0.7, first.height * 0.4); const commanded = await state(page);
   await page.mouse.click(first.width * 0.4, first.height * 0.45, { button: 'right' }); const fed = await state(page);
   expect(fed.feed.length).toBe(2); expect(fed.dog.targetX).toBe(commanded.dog.targetX); expect(fed.dog.targetY).toBe(commanded.dog.targetY);
-  await page.locator('#dog-button').click(); expect((await state(page)).dog.recallReady).toBe(true);
+  await openSettings(page); await page.locator('#dog-button').click(); expect((await state(page)).dog.recallReady).toBe(true);
   await page.locator('#dog-button').click(); expect((await state(page)).dog.launching).toBe(true);
 });
 
-test('pause, help, reset, keyboard visibility, reduced motion and resize', async ({ page }) => {
-  await page.locator('#help-toggle').click(); await expect(page.getByLabel('How to play')).toBeVisible();
+test('pause, settings, reset, keyboard visibility, reduced motion and resize', async ({ page }) => {
+  await openSettings(page); await expect(page.getByLabel('How to play')).toBeVisible();
   await page.keyboard.press('Escape'); await expect(page.getByLabel('How to play')).toBeHidden();
-  await page.locator('#pause').click(); const paused = await state(page); expect(paused.paused).toBe(true);
+  await openSettings(page); await page.locator('#pause').click(); const paused = await state(page); expect(paused.paused).toBe(true);
   await page.keyboard.press('q'); expect((await state(page)).barks).toBe(0); expect((await state(page)).time).toBe(paused.time);
-  await page.locator('#pause').click(); await page.keyboard.press('h'); await expect(page.locator('body')).toHaveClass(/hide-ui/); await page.keyboard.press('h');
+  await page.locator('#pause').click(); await page.keyboard.press('h'); await expect(page.locator('#settings-panel')).toBeHidden(); await page.keyboard.press('h'); await expect(page.locator('#settings-panel')).toBeVisible();
   await page.setViewportSize({ width: 580, height: 760 }); await expect.poll(async () => (await state(page)).width).toBe(580);
   expect((await state(page)).count).toBe(18);
   await page.locator('#reset').click(); expect((await state(page)).feed.length).toBe(0); expect((await state(page)).dog.atHome).toBe(true);
@@ -80,7 +81,8 @@ test('pause, help, reset, keyboard visibility, reduced motion and resize', async
 test('touch movement, ability buttons, long-press feeding and no scroll', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Touch checks run on mobile');
   const s = await state(page); await page.touchscreen.tap(s.width * 0.3, s.height * 0.4); expect((await state(page)).dog).not.toBeNull();
-  await page.locator('[data-ability=q]').tap(); expect((await state(page)).barks).toBeGreaterThan(0);
+  await openSettings(page); await page.locator('[data-ability=q]').tap(); expect((await state(page)).barks).toBeGreaterThan(0);
+  await page.locator('#settings-close').tap();
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: s.width * 0.7, y: s.height * 0.35 }] });
   // A hold is a time-based gesture; wait for its threshold explicitly.
@@ -128,7 +130,7 @@ test('white outlined dark faces and pronounced ears stay clear on grazed ground 
 });
 
 test('small lambs accompany the flock and their counter follows adult population changes', async ({ page }) => {
-  const before = await state(page); expect(before.lambs).toHaveLength(3);
+  await openSettings(page); const before = await state(page); expect(before.lambs).toHaveLength(3);
   expect(before.lambs.every((l: any) => l.size < 0.6 && before.sheep.some((s: any) => s.id === l.parentId))).toBe(true);
   await expect(page.locator('#flock-caption')).toHaveText('your flock · 3 lambs');
   await page.getByRole('button', { name: 'Remove a sheep', exact: true }).click();
@@ -436,4 +438,29 @@ test('wooden rails stay brown and landed birds show two bright centered legs in 
     for (const leg of c.legs) expect(leg).toMatchObject({ glyph: '|', family: 3, level: 31, priority: 8 });
   }
   await page.screenshot({ path: `docs/${info.project.name}-bird-legs.png` });
+});
+
+test('only an ASCII settings button remains on the field and its panel owns every control', async ({ page }, info) => {
+  const panel = page.getByRole('dialog', { name: 'settings', exact: true }), toggle = page.getByRole('button', { name: 'Meadow settings', exact: true });
+  await expect(panel).toBeHidden(); await expect(page.getByRole('button')).toHaveCount(1);
+  expect((await page.locator('body').innerText()).trim()).toBe('[*]');
+  const first = await state(page); await toggle.focus(); await page.keyboard.press('Space');
+  await expect(panel).toBeVisible(); await expect(toggle).toHaveAttribute('aria-expanded', 'true'); expect((await state(page)).regrowMode).toBe(false);
+  await expect(page.getByLabel('How to play')).toBeVisible();
+  for (const id of ['add-sheep', 'remove-sheep', 'dog-button', 'feed-button', 'regrow-button', 'pause', 'reset'])
+    await expect(panel.locator(`#${id}`)).toBeAttached();
+  await expect(panel.locator('[data-ability]')).toHaveCount(4);
+  const box = await panel.boundingBox(); expect(box!.x).toBeGreaterThanOrEqual(8); expect(box!.y + box!.height).toBeLessThanOrEqual(first.height - 8);
+  await page.screenshot({ path: `docs/${info.project.name}-settings.png` });
+  await page.keyboard.press('Escape'); await expect(panel).toBeHidden(); await expect(toggle).toBeFocused();
+  await page.keyboard.press('h'); await expect(panel).toBeVisible();
+  await page.mouse.click(first.width * 0.1, first.height * 0.3); await expect(panel).toBeHidden();
+  const dismissed = await state(page); expect(dismissed.dog.targetX).toBe(first.dog.targetX); expect(dismissed.dog.targetY).toBe(first.dog.targetY); expect(dismissed.feed).toHaveLength(0);
+  await openSettings(page); await page.locator('#feed-button').click(); await expect(panel).toBeHidden(); expect((await state(page)).feedMode).toBe(true);
+  await page.mouse.click(first.width * 0.35, first.height * 0.36); expect((await state(page)).feed).toHaveLength(1);
+  await expect(page.locator('#toast')).toBeHidden();
+  await openSettings(page); await page.locator('#regrow-button').click(); await expect(panel).toBeHidden(); expect((await state(page)).regrowMode).toBe(true);
+  await page.keyboard.press('Escape'); expect((await state(page)).regrowMode).toBe(false);
+  await page.keyboard.press('p'); expect((await state(page)).paused).toBe(true);
+  expect((await page.locator('body').innerText()).trim()).toBe('[*]');
 });
