@@ -296,7 +296,6 @@ export class World {
     }
     d.idleTime = d.arrived && !d.orbit && d.sprint <= 0 ? d.idleTime + dt : 0;
     d.sleeping = d.idleTime >= 7;
-    if (speed > 1) this.pasture.tread(d.x, d.y, dt * 0.8, 25 * this.scale);
   }
   step(dt: number) {
     if (this.paused) return;
@@ -398,7 +397,6 @@ export class World {
       if (v > cap) { s.vx *= cap / v; s.vy *= cap / v; }
       Object.assign(s, this.clampPoint(s.x + s.vx * dt, s.y + s.vy * dt));
       if (v > 2) s.heading = angleDelta(0, s.heading + clamp(angleDelta(s.heading, Math.atan2(s.vy, s.vx)), -dt * 1.7, dt * 1.7));
-      this.pasture.tread(s.x, s.y, dt * (v > 3 ? 0.32 : 0.04), 19 * scale * s.size);
     }
     this.resolveOverlaps(dt, animals);
     this.birdLife.step(dt, this.width, this.height, this.pasture, animals, dog?.atHome ? null : dog, this.barks);

@@ -265,7 +265,7 @@ test('incremental glyph painting leaves no movement trails', async ({ page }) =>
 });
 
 
-test('regrowth gains characters and color gradually, and running dogs have visible feet and tails', async ({ page }, info) => {
+test('regrowth gains characters and color gradually, and running dogs have tucked paws and visible tails', async ({ page }, info) => {
   const result = await page.evaluate(() => {
     const app = (window as any).__meadow, w = app.world, p = w.pasture; w.paused = true; w.sheep.length = 0; w.lambs.length = 0;
     const amounts = [0, 0.1, 0.3, 0.55, 0.8, 1]; p.flower.fill(-1); p.trampled.fill(0);
@@ -279,14 +279,14 @@ test('regrowth gains characters and color gradually, and running dogs have visib
       const px = (c + 0.5) * p.cellW, py = (r + 0.5) * p.cellH, cell = app.renderer.cellAt(px, py);
       if (![3, 4].includes(cell.family)) continue;
       if (px < x - 23 * w.scale && px > x - 47 * w.scale && Math.abs(py - y) < 16 * w.scale) tail++;
-      if (Math.abs(px - x) < 26 * w.scale && Math.abs(py - y) > 12 * w.scale && Math.abs(py - y) < 26 * w.scale) feet++;
+      if (Math.abs(px - x) < 20 * w.scale && py - y > 9 * w.scale && py - y < 19 * w.scale && ((px - x) / (22 * w.scale)) ** 2 + ((py - y) / (11.5 * w.scale)) ** 2 > 1 && !['[', ']'].includes(cell.glyph)) feet++;
     }
     return { stages, tail, feet };
   });
   expect(result.stages[0].glyph).toBe(' '); expect(result.stages[1].glyph).toBe('.');
   expect(result.stages[2].family).toBe(6); expect(result.stages[3].family).toBe(0);
   expect(result.stages[5].level).toBeGreaterThan(result.stages[3].level);
-  expect(result.tail).toBeGreaterThan(3); expect(result.feet).toBeGreaterThan(2); expect(result.feet).toBeLessThan(16);
+  expect(result.tail).toBeGreaterThan(3); expect(result.feet).toBeGreaterThan(0); expect(result.feet).toBeLessThan(8);
   await page.screenshot({ path: `docs/${info.project.name}-regrowth.png` });
 });
 

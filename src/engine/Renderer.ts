@@ -61,13 +61,6 @@ export class Renderer {
     this.codes[i] = Math.max(0, GLYPHS.indexOf(glyph)); this.levels[i] = clamp(Math.round(level * 31), 0, 31);
     this.family[i] = family;
   }
-  private shadow(x: number, y: number, rx: number, ry: number) {
-    const p = this.world.pasture;
-    for (let r = Math.floor((y - ry) / p.cellH); r <= Math.ceil((y + ry) / p.cellH); r++) for (let c = Math.floor((x - rx) / p.cellW); c <= Math.ceil((x + rx) / p.cellW); c++) {
-      const px = (c + 0.5) * p.cellW, py = (r + 0.5) * p.cellH;
-      if (((px - x) / rx) ** 2 + ((py - y) / ry) ** 2 < 1) this.put(px, py, '.', 0.1, 6);
-    }
-  }
   cellAt(x: number, y: number) {
     const i = this.world.pasture.index(x, y);
     return { glyph: GLYPHS[this.codes[i]], priority: this.priority[i], tile: 0, family: this.family[i], level: this.levels[i] };
@@ -76,11 +69,15 @@ export class Renderer {
     const w = this.world, p = w.pasture, scale = w.scale * s.size;
     const heading = s.heading + (s.state === 'grazing' ? Math.sin(w.time * 2 + s.phase) * 0.06 : 0);
     const dx = Math.cos(heading), dy = Math.sin(heading), sx = -dy, sy = dx;
-    const rx = 25.5 * scale, ry = 17.5 * scale, stride = Math.hypot(s.vx, s.vy) > 4 ? Math.sin(w.time * 11 + s.phase) * 4 : 0;
+    const rx = 25.5 * scale, ry = 17.5 * scale, stride = Math.hypot(s.vx, s.vy) > 4 ? Math.sin(w.time * 11 + s.phase) * 2.1 * scale : 0;
     if (!headsOnly) {
     for (const front of [-1, 1]) for (const side of [-1, 1]) {
-      const f = front * rx * 0.52 + stride * front * side, lateral = side * (ry + 3);
-      this.put(s.x + dx * f + sx * lateral, s.y + dy * f + sy * lateral, lineGlyph(dx + sx * 0.5, dy + sy * 0.5), 0.45, 2);
+      const f = front * rx * (0.47 + Math.abs(dy) * 0.1), kick = stride * front * side;
+      const hipX = s.x + dx * f + sx * side * ry * 0.45, hipY = s.y + dy * f + sy * side * ry * 0.45;
+      const footX = s.x + dx * (f + kick) + sx * side * ry * 0.65;
+      const footY = s.y + dy * (f + kick) + sy * side * ry * 0.65 + 5 * scale;
+      this.stroke(hipX, hipY, footX, footY, 0.48, 2);
+      this.put(footX, footY, '.', 0.65, 3);
     }
     const radius = rx + 4;
     for (let r = Math.floor((s.y - radius) / p.cellH); r <= Math.ceil((s.y + radius) / p.cellH); r++) for (let c = Math.floor((s.x - radius) / p.cellW); c <= Math.ceil((s.x + radius) / p.cellW); c++) {
@@ -134,14 +131,14 @@ export class Renderer {
     if (!d) return;
     const p = w.pasture, scale = w.scale, dx = Math.cos(d.heading), dy = Math.sin(d.heading), sx = -dy, sy = dx;
     const rx = 22 * scale, ry = 11.5 * scale, speed = Math.hypot(d.vx, d.vy);
-    this.shadow(d.x + 4, d.y + 6, rx + 9, ry + 7);
+    // Draw short legs first, so the coat covers their roots and only paws peek below.
     for (const front of [-1, 1]) for (const side of [-1, 1]) {
       const stride = Math.sin(w.time * (d.sprint > 0 || d.launching ? 25 : 18) + (front === side ? 0 : Math.PI));
-      const f = front * 13 * scale, kick = speed > 3 ? stride * 4.5 * scale : 0;
-      const hipX = d.x + dx * f + sx * side * 8 * scale, hipY = d.y + dy * f + sy * side * 8 * scale;
-      const kneeX = d.x + dx * (f + kick * 0.45) + sx * side * 12.5 * scale, kneeY = d.y + dy * (f + kick * 0.45) + sy * side * 12.5 * scale;
-      const footX = d.x + dx * (f + kick) + sx * side * 15 * scale, footY = d.y + dy * (f + kick) + sy * side * 15 * scale;
-      this.stroke(hipX, hipY, kneeX, kneeY, 0.75, 4); this.stroke(kneeX, kneeY, footX, footY, 0.65, 4);
+      const f = front * (12 + Math.abs(dy) * 4) * scale, kick = speed > 3 ? stride * 2.6 * scale : 0;
+      const hipX = d.x + dx * f + sx * side * 6 * scale, hipY = d.y + dy * f + sy * side * 6 * scale;
+      const kneeX = d.x + dx * (f + kick * 0.45) + sx * side * 7 * scale, kneeY = d.y + dy * (f + kick * 0.45) + sy * side * 7 * scale + 2.5 * scale;
+      const footX = d.x + dx * (f + kick) + sx * side * 8.5 * scale, footY = d.y + dy * (f + kick) + sy * side * 8.5 * scale + 5 * scale;
+      this.stroke(hipX, hipY, kneeX, kneeY, 0.65, 4); this.stroke(kneeX, kneeY, footX, footY, 0.6, 4);
       this.put(footX, footY, '.', 0.55, 3);
     }
     for (let r = Math.floor((d.y - rx) / p.cellH); r <= Math.ceil((d.y + rx) / p.cellH); r++) for (let c = Math.floor((d.x - rx) / p.cellW); c <= Math.ceil((d.x + rx) / p.cellW); c++) {
@@ -184,7 +181,6 @@ export class Renderer {
     const family = 9 + b.color, priority = flying ? 5 : 1;
     const dot = (along: number, side: number, glyph: string, level = 0.9, ink = family) => this.put(x + (dx * along + sx * side) * scale, y + (dy * along + sy * side) * scale, glyph, level, ink, priority);
     if (!flying) {
-      this.shadow(x + 2, y + 4, 12 * scale, 7 * scale);
       dot(-2, -6, '.', 0.8, 5); dot(-2, 6, '.', 0.8, 5);
     }
     dot(-5, 0, '%'); dot(0, 0, '#'); dot(1, -4, ':', 0.7); dot(1, 4, ':', 0.7);
@@ -257,7 +253,6 @@ export class Renderer {
       const remaining = clamp(grass / Math.max(0.1, p.capacity[i]), 0, 1);
       const ink = grassAppearance(remaining, texture, wind);
       let { glyph, family, level } = ink;
-      if (p.trampled[i] > 0.3 && remaining > 0.9) glyph = texture > 0.5 ? '/' : '\\';
       if (p.flower[i] >= 0 && remaining > 0.95) { glyph = p.flower[i] > 0.5 ? '*' : '+'; family = p.flower[i] > 0.7 ? 3 : 5; level = 0.45 + texture * 0.25; }
       const edge = Math.min(c * cw, w.width - c * cw, r * ch, w.height - r * ch);
       // Dense meadow at the edges, quiet breathing room for the controls.
@@ -284,10 +279,9 @@ export class Renderer {
     this.pen();
     for (const b of w.birds) if (b.state === 'landed') this.bird(b);
     const animals = w.animals;
-    for (const s of animals) this.shadow(s.x + 4, s.y + 7, 25.5 * w.scale * s.size + 8, 17.5 * w.scale * s.size + 5);
     for (const s of animals) this.sheep(s);
     this.dog();
-    // Faces and ears always survive another animal's wool or shadow.
+    // Faces and ears always survive another animal's wool.
     for (const s of animals) this.sheep(s, true);
     this.sleep();
     for (const b of w.birds) if (b.state !== 'landed') this.bird(b);
