@@ -36,6 +36,6 @@ if (new URLSearchParams(location.search).has('debug')) Object.defineProperty(win
   grass: world.pasture.grass.reduce((a, b) => a + b, 0), eaten: world.eaten,
   lambs: world.lambs.map(s => ({ ...s })), birds: world.birds.map(b => ({ ...b })),
   feed: world.feed.map(f => ({ ...f })), sheep: world.sheep.map(s => ({ ...s })), dog: world.dog ? { ...world.dog } : null,
-  herd: world.herdCenter(), home: world.home, pen: world.pen, regrowMode: controller.regrowMode, outline: world.orbitOutline(), panic: world.panicLeft, barks: world.barks.length, feedMode: controller.feedMode, fps,
+  herd: world.herdCenter(), home: world.home, pen: world.pen, gateOpen: world.gateOpen, regrowMode: controller.regrowMode, outline: world.orbitOutline(), panic: world.panicLeft, barks: world.barks.length, feedMode: controller.feedMode, fps,
 }) } });
 if (import.meta.hot) import.meta.hot.dispose(() => { cancelAnimationFrame(raf); resize.disconnect(); controller.destroy(); reduced.removeEventListener('change', motion); document.removeEventListener('visibilitychange', visibility); });

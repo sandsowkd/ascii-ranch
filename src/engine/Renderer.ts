@@ -1,6 +1,7 @@
 import { clamp, hash3, lineGlyph } from '../vendor/pond-math';
 import { DENSITY_GLYPHS, grassAppearance } from './grass';
 import type { Bird } from '../simulation/Birds';
+import { gateLeaf } from '../simulation/fence';
 import { BARK_TRAVEL_TIME, BARK_FADE_TIME, BARK_LIFETIME, barkRadius, type Bark } from '../simulation/bark';
 import type { Sheep, World } from '../simulation/World';
 
@@ -187,8 +188,9 @@ export class Renderer {
     this.put(hx + dx * 17 * scale, hy + dy * 17 * scale, barking ? 'O' : lineGlyph(sx, sy), barking ? 1 : 0.7, 3, 4);
     if (barking) this.put(hx + dx * 20 * scale, hy + dy * 20 * scale, 'v', 0.95, 2, 3);
     // An unobtrusive copper selection mark makes the dog easy to pick out.
-    this.put(d.x - 10, d.y - 25 * scale, '[', 0.5, 4);
-    this.put(d.x + 10, d.y - 25 * scale, ']', 0.5, 4);
+    const selectionY = d.y - (d.atHome || d.penTransit === 'enter' || d.penTransit === 'exit' ? 19 : 25) * scale;
+    this.put(d.x - 10, selectionY, '[', 0.5, 4);
+    this.put(d.x + 10, selectionY, ']', 0.5, 4);
   }
   private bird(b: Bird) {
     const w = this.world, p = w.pasture, scale = w.scale, flying = b.state !== 'landed';
@@ -261,6 +263,15 @@ export class Renderer {
           this.put((col + dc + 0.5) * p.cellW, (r + 0.5) * p.cellH, '|', 0.9, 7, 2);
       }
     }
+    const door = gateLeaf(b, w.gateOpen), dx = door.b.x - door.a.x, dy = door.b.y - door.a.y;
+    const length = Math.hypot(dx, dy), nx = dy / length, ny = -dx / length;
+    for (const offset of [-p.cellW * 0.5, p.cellW * 0.5])
+      this.stroke(door.a.x + nx * offset, door.a.y + ny * offset, door.b.x + nx * offset, door.b.y + ny * offset, 0.9, 5, 2);
+    for (const t of [0.25, 0.5, 0.75]) {
+      const x = door.a.x + dx * t, y = door.a.y + dy * t;
+      this.stroke(x - nx * p.cellW, y - ny * p.cellW, x + nx * p.cellW, y + ny * p.cellW, 0.8, 5, 2);
+    }
+    this.put(door.b.x - dx * 0.12, door.b.y - dy * 0.12, 'o', 0.95, 5, 3);
     for (const post of w.fence.posts) {
       const c = Math.floor(post.x / p.cellW), r = Math.floor(post.y / p.cellH);
       for (const dy of [-1, 0]) for (const dx of [-1, 0, 1]) this.put((c + dx + 0.5) * p.cellW, (r + dy + 0.5) * p.cellH, dx === 0 ? '#' : dx < 0 ? '[' : ']', dx === 0 ? 0.95 : 0.75, 5, 3);

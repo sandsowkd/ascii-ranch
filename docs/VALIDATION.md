@@ -5,8 +5,8 @@ Verified on November 13, 2026.
 | Check | Result |
 | --- | --- |
 | Production build | Strict TypeScript + Vite build passed |
-| Simulation tests | 58 passing |
-| Browser checks | 37 passing, desktop and mobile Chromium |
+| Simulation tests | 60 passing |
+| Browser checks | 39 passing, desktop and mobile Chromium |
 | Touch-only desktop check | Intentionally skipped; tested on the mobile project |
 | Runtime errors | None observed in browser checks |
 | Full-screen character field | Canvas fills the viewport; more than 94% of sampled cell interiors contain ink |
@@ -26,8 +26,10 @@ Animal ground shadows and automatic trampling marks have been removed. Dog, shee
 
 The screenshots in this directory are actual captures of the application, inspected during development. The in-app browser was also used directly to call the dog, issue left-click commands and bark.
 
-Raw frame samples are saved in `performance-desktop.json` and `performance-mobile.json`. The default desktop has 36,450 grass cells and 18 adults plus 3 lambs, with occasional birds. Production JavaScript is approximately 56.5 kB (20.4 kB gzip), with 6.7 kB CSS and a 9.9 kB local font. There are no runtime package dependencies.
+Raw frame samples are saved in `performance-desktop.json` and `performance-mobile.json`. The default desktop has 36,450 grass cells and 18 adults plus 3 lambs, with occasional birds. Production JavaScript is approximately 58.7 kB (21.1 kB gzip), with 6.7 kB CSS and a 9.9 kB local font. There are no runtime package dependencies.
 
 These are samples from this computer, not a hardware-independent FPS guarantee. Mobile checks use Chromium emulation; native Safari and physical touch devices remain unverified. The meadow is a local project and has not been deployed.
 
-The compact pen is 128 × 128 px before responsive scaling, a 44.5% area reduction. Seven posts give four corners and a single intermediate post on each closed side. Gate exit, recall and sprint rail protection pass with the smaller pen. Fresh-page and reset browser checks confirm the dog is already parked at home without a click. Sitting birds have a larger seven-column, five-row side profile. Perched birds render last at the highest priority; deliberate overlap by the dog and a flying bird preserves every perched glyph on desktop and mobile. `compact-pen.png` and `compact-pen-detail.png` show the smaller enclosure, resting dog and an actual landed visitor.
+The compact pen is now 120 × 60 px before responsive scaling: a 2:1 rectangle with 56% less area than the previous square. Six posts give four corners and one intermediate post on each long side, with none on the short sides. The left gate swings open before release or entry and closes after the dog is clear or resting at home. Passage follows a horizontal centerline so the smaller pen clears the dog’s entire silhouette. Desktop/mobile simulation checks cover full exit, closed-gate field travel, recall, reversing a release into recall, re-release and resizing a resting dog. Browser checks verify the initial closed door, its ink disappearing from the entrance as it swings open, cursor release, re-closing after exit and a completed recall with the door closed. The dog starts at home and R releases it immediately. Perched birds retain their highest rendering priority.
+
+`compact-pen-detail.png` shows the smaller rectangle and closed door. `pen-gate-open-detail.png` shows an actual release through the open gate. Full desktop/mobile captures are saved in `*-pen-gate.png` and `*-pen-gate-open.png`.

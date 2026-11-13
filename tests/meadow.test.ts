@@ -7,6 +7,20 @@ import { BirdLife } from '../src/simulation/Birds';
 import { createBark } from '../src/simulation/bark';
 
 function advance(world: World, seconds: number) { for (let i = 0; i < seconds * 60; i++) world.step(1 / 60); }
+// In the doorway the dog passes lengthwise; in the field its conservative
+// navigation footprint must clear every side, including the closed gate.
+function expectPenClear(w: World) {
+  const d = w.dog!, p = w.pen;
+  if (d.atHome || d.penTransit === 'enter' || d.penTransit === 'exit') {
+    expect(d.y).toBeCloseTo(w.home.y);
+    expect(Math.abs(Math.sin(d.heading))).toBeLessThan(0.001);
+    expect(d.y - 21 * w.scale).toBeGreaterThan(p.top + 5 * w.scale);
+    expect(d.y + 21 * w.scale).toBeLessThan(p.bottom - 5 * w.scale);
+    expect(d.x + 48 * w.scale).toBeLessThan(p.right - 5 * w.scale);
+    if (Math.abs(d.x - p.left) < 49 * w.scale) expect(w.gateOpen).toBe(1);
+  } else for (const o of w.fence.obstacles)
+    expect(Math.hypot(d.x - o.x, d.y - o.y)).toBeGreaterThanOrEqual(o.radius - 0.1);
+}
 describe('lambs and visiting birds', () => {
   it('adds one small lamb per six adults and maintains that ratio through population changes', () => {
     const w = new World(1200, 900, 5);
@@ -115,16 +129,26 @@ describe('forward grazing and a physical recall pen', () => {
     const turn = Math.atan2(s.goalY - 450, s.goalX - 500);
     expect(s.state).toBe('walking'); expect(Math.abs(turn)).toBeGreaterThan(0.3); expect(Math.abs(turn)).toBeLessThanOrEqual(Math.PI / 4 + 1e-8);
   });
-  it('spawns inside the pen and uses the gate for exit and recall without clipping rails', () => {
-    const w = new World(1200, 900, 0); w.toggleDog();
-    expect(w.dog!.x).toBe(w.home.x); expect(w.dog!.y).toBe(w.home.y); expect(w.dog!.atHome).toBe(true); expect(w.fence.posts).toHaveLength(7);
-    expect((w.pen.right - w.pen.left) * (w.pen.bottom - w.pen.top)).toBeLessThan(164 * 180 * 0.6);
-    const safe = () => { for (const o of w.fence.obstacles) expect(Math.hypot(w.dog!.x - o.x, w.dog!.y - o.y)).toBeGreaterThanOrEqual(o.radius - 0.1); };
-    w.sendDog(300, 300);
-    for (let i = 0; i < 900; i++) { w.step(1 / 60); safe(); }
-    expect(w.dog!.arrived).toBe(true); expect(Math.hypot(w.dog!.x - 300, w.dog!.y - 300)).toBeLessThan(2);
-    w.cast('r'); for (let i = 0; i < 1200; i++) { w.step(1 / 60); safe(); }
-    expect(w.dog!.atHome).toBe(true); expect(w.dog!.x).toBeCloseTo(w.home.x);
+  it.each([[1200, 900], [412, 839]])('uses a compact 2:1 pen and opens the gate for exit and recall at %i × %i', (width, height) => {
+    const w = new World(width, height, 0); w.toggleDog();
+    expect(w.dog!.x).toBe(w.home.x); expect(w.dog!.y).toBe(w.home.y); expect(w.dog!.atHome).toBe(true); expect(w.gateOpen).toBe(0);
+    expect(w.fence.posts).toHaveLength(6);
+    expect(w.pen.right - w.pen.left).toBeCloseTo((w.pen.bottom - w.pen.top) * 2);
+    for (const x of [w.pen.left, w.pen.right]) expect(w.fence.posts.filter(p => p.x === x)).toHaveLength(2);
+    const target = { x: width * 0.25, y: height * 0.35 };
+    w.sendDog(target.x, target.y);
+    for (let i = 0; i < 900; i++) { w.step(1 / 60); expectPenClear(w); }
+    expect(w.dog!.arrived).toBe(true); expect(Math.hypot(w.dog!.x - target.x, w.dog!.y - target.y)).toBeLessThan(2); expect(w.gateOpen).toBe(0);
+    w.cast('r'); for (let i = 0; i < 1200; i++) { w.step(1 / 60); expectPenClear(w); }
+    expect(w.dog!.atHome).toBe(true); expect(w.dog!.x).toBeCloseTo(w.home.x); expect(w.gateOpen).toBe(0);
+  });
+  it('can reverse a release into recall, release again, and keep a resting dog inside on resize', () => {
+    const w = new World(1200, 900, 0); w.toggleDog(); w.cast('r', { x: 500, y: 350 }); advance(w, 0.35);
+    expect(w.dog!.penTransit).toBe('exit'); expect(w.gateOpen).toBe(1);
+    w.cast('r'); advance(w, 4); expect(w.dog!.atHome).toBe(true); expect(w.gateOpen).toBe(0);
+    w.resize(412, 839); expect(w.dog!.x).toBe(w.home.x); expect(w.dog!.y).toBe(w.home.y); expect(w.dog!.atHome).toBe(true);
+    w.cast('r', { x: 160, y: 320 }); advance(w, 8); expect(w.dog!.arrived).toBe(true); expect(w.gateOpen).toBe(0);
+    expect(Math.hypot(w.dog!.x - 160, w.dog!.y - 320)).toBeLessThan(2);
   });
   it('sprint cannot pass through a closed rail and sheep heads stay clear of the pen', () => {
     const w = new World(1200, 900, 1); w.toggleDog();
@@ -132,7 +156,7 @@ describe('forward grazing and a physical recall pen', () => {
     const s = w.sheep[0]; Object.assign(s, { x: w.pen.left - 75, y: w.home.y, heading: 0, state: 'walking', goalX: w.home.x, goalY: w.home.y, timer: 100 });
     for (let i = 0; i < 1500; i++) {
       w.step(1 / 60);
-      for (const o of w.fence.obstacles) expect(Math.hypot(w.dog!.x - o.x, w.dog!.y - o.y)).toBeGreaterThanOrEqual(o.radius - 0.1);
+      expectPenClear(w);
       expect(s.x <= w.pen.left - 66 * w.scale + 0.1 || s.y <= w.pen.top - 66 * w.scale + 0.1).toBe(true);
     }
     expect(w.dog!.arrived).toBe(true);

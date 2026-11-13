@@ -24,6 +24,7 @@ export interface Dog {
   arrived: boolean; sprint: number; orbit: 'w' | null; orbitEntering: boolean; orbitPath: Point[]; orbitProgress: number; orbitLast?: Point; orbitUpdatedAt: number;
   anchorX: number; anchorY: number; recallReady: boolean; recalling: boolean; atHome: boolean; launching: boolean;
   idleTime: number; sleeping: boolean; barkAge?: number; navPath: Point[]; navAt: number; navGoalX: number; navGoalY: number; navMode: 'clear' | 'squeeze' | 'cross'; navStuck: number; navClearSince: number;
+  penTransit?: 'exit' | 'approach' | 'enter' | null;
 }
 export interface Feed { id: number; x: number; y: number; amount: number; age: number; seed: number }
 export interface Rect { left: number; right: number; top: number; bottom: number }
@@ -39,6 +40,7 @@ export class World {
   marker: { x: number; y: number; age: number } | null = null;
   time = 0; paused = false; eaten = 0; nextId = 0; nextFeed = 0;
   panicLeft = 0; panicX = 0; panicY = 0;
+  gateOpen = 0;
   private random = seeded(74821);
   private fenceCache?: { width: number; height: number; value: Fence };
   constructor(public width: number, public height: number, count = 18) { this.pasture = new Pasture(width, height); this.reset(count); }
@@ -56,7 +58,7 @@ export class World {
   }
   get pen(): Rect {
     const right = this.width - 32 * this.scale, bottom = this.dogBounds.bottom - 5 * this.scale;
-    return { left: right - 128 * this.scale, right, top: bottom - 128 * this.scale, bottom };
+    return { left: right - 120 * this.scale, right, top: bottom - 60 * this.scale, bottom };
   }
   get fence() {
     if (!this.fenceCache || this.fenceCache.width !== this.width || this.fenceCache.height !== this.height)
@@ -75,6 +77,11 @@ export class World {
     const b = this.pen, x = (b.left + b.right) / 2, y = (b.top + b.bottom) / 2;
     return { x, y, doorX: x, doorY: y };
   }
+  private get penApproach() { return { x: this.pen.left - 110 * this.scale, y: this.home.y }; }
+  private needsPenExit(d: Dog) {
+    return d.x > this.penApproach.x && d.x <= this.home.x + 2 * this.scale && Math.abs(d.y - this.home.y) < 3 * this.scale &&
+      (d.atHome || d.penTransit === 'exit' || d.penTransit === 'enter' || d.x >= this.pen.left);
+  }
   dogAvoidanceRadius() {
     const d = this.dog;
     if (!d || d.atHome) return 0;
@@ -85,6 +92,8 @@ export class World {
   }
   clampPoint(x: number, y: number) { const p = this.outsidePen(this.clampTo(x, y, this.bounds), 66 * this.scale); return this.clampTo(p.x, p.y, this.bounds); }
   dogPoint(x: number, y: number) {
+    const b = this.pen;
+    if (x >= b.left && x <= b.right && y >= b.top && y <= b.bottom) return this.home;
     const p = this.clampTo(x, y, this.dogBounds), f = this.fence, safe = (q: Point) => !f.obstacles.some(o => Math.hypot(q.x - o.x, q.y - o.y) < o.radius + 1);
     if (safe(p)) return p;
     const candidates = [this.home, this.outsidePen(p, 64 * this.scale),
@@ -94,7 +103,7 @@ export class World {
   }
   reset(count = this.sheep.length) {
     this.random = seeded(74821); this.sheep.length = 0; this.lambs.length = 0; this.birdLife.reset(); this.dog = null; this.feed.length = 0;
-    this.time = 0; this.eaten = 0; this.nextId = 0; this.nextFeed = 0; this.barks.length = 0; this.marker = null; this.panicLeft = 0;
+    this.time = 0; this.eaten = 0; this.nextId = 0; this.nextFeed = 0; this.barks.length = 0; this.marker = null; this.panicLeft = 0; this.gateOpen = 0;
     this.pasture.resize(this.width, this.height, false);
     for (let i = 0; i < count; i++) this.addSheep(true);
   }
@@ -136,13 +145,16 @@ export class World {
     const p = { x: this.home.x, y: this.home.y };
     this.dog = { ...p, vx: 0, vy: 0, heading: Math.PI, targetX: p.x, targetY: p.y, arrived: true,
       sprint: 0, orbit: null, orbitEntering: false, orbitPath: [], orbitProgress: 0, orbitUpdatedAt: 0,
-      anchorX: p.x, anchorY: p.y, recallReady: false, recalling: false, atHome: true, launching: false, idleTime: 0, sleeping: false, barkAge: 99, navPath: [], navAt: -10, navGoalX: p.x, navGoalY: p.y, navMode: 'clear', navStuck: 0, navClearSince: -1 };
+      anchorX: p.x, anchorY: p.y, recallReady: true, recalling: false, atHome: true, launching: false, idleTime: 0, sleeping: false, barkAge: 99, navPath: [], navAt: -10, navGoalX: p.x, navGoalY: p.y, navMode: 'clear', navStuck: 0, navClearSince: -1, penTransit: null };
+    this.gateOpen = 0;
     return true;
   }
   sendDog(x: number, y: number) {
     if (!this.dog) this.toggleDog();
     const p = this.dogPoint(x, y), d = this.dog!;
-    Object.assign(d, { targetX: p.x, targetY: p.y, arrived: false, orbit: null, recallReady: false, recalling: false, atHome: false, launching: false, idleTime: 0, sleeping: false, navPath: [], navAt: -10, navMode: 'clear', navStuck: 0, navClearSince: -1 });
+    const homeGoal = p.x === this.home.x && p.y === this.home.y, leaving = this.needsPenExit(d);
+    const penTransit = homeGoal ? leaving ? 'enter' : 'approach' : leaving ? 'exit' : null;
+    Object.assign(d, { targetX: p.x, targetY: p.y, arrived: false, orbit: null, recallReady: homeGoal, recalling: homeGoal, atHome: false, launching: false, idleTime: 0, sleeping: false, navPath: [], navAt: -10, navMode: 'clear', navStuck: 0, navClearSince: -1, penTransit });
     this.marker = { ...p, age: 0 };
   }
   /** A padded envelope of EVERY sheep, rather than a mean radius. */
@@ -183,7 +195,9 @@ export class World {
     }
     if (key === 'e') { if (d.arrived && aim) this.sendDog(aim.x, aim.y); d.sprint = ABILITIES.e.duration; }
     if (key === 'w') {
+      const leaving = this.needsPenExit(d);
       d.recalling = false; d.recallReady = false; d.atHome = false; d.launching = false; d.navAt = -10;
+      d.penTransit = leaving ? 'exit' : null;
       d.orbitPath = this.orbitRoute(); d.orbitProgress = 0; d.orbitLast = undefined; d.orbitUpdatedAt = this.time;
       d.orbit = 'w'; d.orbitEntering = true;
     }
@@ -192,7 +206,9 @@ export class World {
         const p = aim ?? { x: this.width * 0.5, y: this.height * 0.5 };
         this.sendDog(p.x, p.y); d.launching = true; d.sprint = 0;
       } else {
+        const returning = this.needsPenExit(d);
         d.orbit = null; d.sprint = 0; d.launching = false; d.recalling = true; d.recallReady = true; d.atHome = false;
+        d.penTransit = returning ? 'enter' : 'approach'; d.navPath = []; d.navAt = -10;
         d.targetX = this.home.doorX; d.targetY = this.home.doorY; d.arrived = false;
       }
     }
@@ -206,9 +222,14 @@ export class World {
     const sx = width / this.width, sy = height / this.height; this.width = width; this.height = height; this.pasture.resize(width, height); this.birdLife.resize(sx, sy, this.fence.posts, this.pasture.cellH);
     for (const s of this.animals) { const p = this.clampPoint(s.x * sx, s.y * sy), goal = this.clampPoint(s.goalX * sx, s.goalY * sy); Object.assign(s, p, { goalX: goal.x, goalY: goal.y }); }
     if (this.dog) {
-      const p = this.dogPoint(this.dog.x * sx, this.dog.y * sy), goal = this.dogPoint(this.dog.targetX * sx, this.dog.targetY * sy);
-      Object.assign(this.dog, p, { targetX: goal.x, targetY: goal.y });
-      if (this.dog.recalling || this.dog.atHome) { this.dog.targetX = this.home.doorX; this.dog.targetY = this.home.doorY; this.dog.recalling = true; this.dog.atHome = false; }
+      const d = this.dog, p = this.dogPoint(d.x * sx, d.y * sy), goal = this.dogPoint(d.targetX * sx, d.targetY * sy);
+      if (d.atHome) {
+        Object.assign(d, this.home, { targetX: this.home.x, targetY: this.home.y, vx: 0, vy: 0, heading: Math.PI, arrived: true, penTransit: null }); this.gateOpen = 0;
+      } else {
+        Object.assign(d, p, { targetX: goal.x, targetY: goal.y, navPath: [], navAt: -10 });
+        if (d.penTransit === 'enter' || d.penTransit === 'exit') { d.x = clamp(d.x, this.penApproach.x, this.home.x); d.y = this.home.y; }
+        if (d.recalling) { d.targetX = this.home.x; d.targetY = this.home.y; if (d.penTransit !== 'enter') d.penTransit = 'approach'; }
+      }
     }
     for (const f of this.feed) Object.assign(f, this.clampPoint(f.x * sx, f.y * sy));
     this.barks.length = 0; this.marker = null;
@@ -308,10 +329,31 @@ export class World {
     d.navPath = path; d.navMode = mode; d.navAt = this.time; d.navGoalX = goal.x; d.navGoalY = goal.y; d.navClearSince = -1;
   }
   private stepDog(dt: number) {
-    const d = this.dog; if (!d) return;
+    const d = this.dog;
+    const opening = d?.penTransit === 'exit' || d?.penTransit === 'enter';
+    this.gateOpen = clamp(this.gateOpen + dt * (opening ? 10 : -10), 0, 1);
+    if (!d) return;
     d.barkAge = Math.min(99, (d.barkAge ?? 99) + dt);
     if (d.atHome && (d.x < this.pen.left || d.x > this.pen.right || d.y < this.pen.top || d.y > this.pen.bottom)) d.atHome = false;
     d.sprint = Math.max(0, d.sprint - dt);
+    if (opening) {
+      const entering = d.penTransit === 'enter', goal = entering ? this.home : this.penApproach;
+      d.heading = entering ? 0 : Math.PI; d.y = this.home.y; d.vx = 0; d.vy = 0;
+      // Wait for the door, then pass lengthwise through the short pen. Staying
+      // on its centerline keeps the head, tail and paws clear of the rails.
+      if (this.gateOpen >= 1) {
+        const dx = goal.x - d.x, max = (d.launching ? SPEEDS.dogRelease : d.sprint > 0 ? SPEEDS.dogSprint : d.orbit ? SPEEDS.dogOrbit : SPEEDS.dogWalk) * this.scale;
+        d.vx = Math.sign(dx) * Math.min(max, Math.abs(dx) * 5); d.x += d.vx * dt;
+        if (Math.abs(goal.x - d.x) < 2 * this.scale) {
+          d.x = goal.x; d.vx = 0; d.penTransit = null; d.navPath = []; d.navAt = -10;
+          if (entering) { d.arrived = true; d.atHome = true; d.recalling = false; d.recallReady = true; d.launching = false; }
+        }
+      }
+      return;
+    }
+    if (d.atHome) {
+      d.idleTime += dt; d.sleeping = d.idleTime >= 7; return;
+    }
     if (d.orbit) {
       if (this.time - d.orbitUpdatedAt > 0.45) { d.orbitPath = this.orbitRoute(); d.orbitUpdatedAt = this.time; }
       const path = d.orbitPath, near = nearestOnRoute(path, d);
@@ -328,7 +370,8 @@ export class World {
       d.orbitLast = { x: d.x, y: d.y };
       if (d.orbitProgress >= 1) { d.orbit = null; d.targetX = d.x; d.targetY = d.y; }
     }
-    const obstacles = this.dogObstacles(), goal = { x: d.targetX, y: d.targetY };
+    const approaching = d.penTransit === 'approach';
+    const obstacles = this.dogObstacles(), goal = approaching ? this.penApproach : { x: d.targetX, y: d.targetY };
     const goalDistance = Math.hypot(goal.x - d.x, goal.y - d.y), direct = segmentClear(d, goal, obstacles);
     if (direct) { if (d.navClearSince < 0) d.navClearSince = this.time; } else d.navClearSince = -1;
     while (d.navPath.length && Math.hypot(d.navPath[0].x - d.x, d.navPath[0].y - d.y) < (d.navPath.length === 1 ? 1.5 : 5) * this.scale) d.navPath.shift();
@@ -358,8 +401,9 @@ export class World {
     const moving = Math.hypot(d.vx, d.vy);
     d.navStuck = goalDistance > 12 * this.scale && moving < 12 * this.scale ? d.navStuck + dt : Math.max(0, d.navStuck - dt * 3);
     if (!d.arrived && Math.hypot(d.vx, d.vy) > 2) d.heading = angleDelta(0, d.heading + clamp(angleDelta(d.heading, Math.atan2(d.vy, d.vx)), -dt * 5, dt * 5));
-    if (d.arrived) {
-      if (d.recalling) { d.recalling = false; d.atHome = true; d.x = this.home.doorX; d.y = this.home.doorY; }
+    if (approaching && Math.hypot(d.x - goal.x, d.y - goal.y) < 2) {
+      Object.assign(d, goal, { arrived: false, vx: 0, vy: 0, heading: 0, penTransit: 'enter', navPath: [], navAt: -10 });
+    } else if (d.arrived) {
       d.launching = false;
     }
     d.idleTime = d.arrived && !d.orbit && d.sprint <= 0 ? d.idleTime + dt : 0;

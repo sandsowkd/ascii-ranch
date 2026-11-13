@@ -345,7 +345,7 @@ test('the dog starts inside a thick posted pen, opens its mouth to bark, and bir
       }
       return { eyes, nose, word: letters.sort((a, b) => a.x - b.x).map(c => c.glyph).join('') };
     };
-    const closed = scan(), inside = w.dog.x > w.pen.left + 45 * w.scale && w.dog.x < w.pen.right - 45 * w.scale && w.dog.y > w.pen.top + 45 * w.scale && w.dog.y < w.pen.bottom - 45 * w.scale;
+    const closed = scan(), inside = w.dog.x > w.pen.left + 45 * w.scale && w.dog.x < w.pen.right - 45 * w.scale && w.dog.y > w.pen.top + 21 * w.scale && w.dog.y < w.pen.bottom - 21 * w.scale;
     const postInk = w.fence.posts.filter((q: any) => r.cellAt(q.x, q.y).glyph === '#').length;
     w.paused = false; app.controller.cast('q'); w.paused = true; const open = scan();
     w.dog.barkAge = 1; r.render(); const quiet = scan();
@@ -369,7 +369,39 @@ test('the dog starts inside a thick posted pen, opens its mouth to bark, and bir
     return { closed, open, quiet, inside, postInk, postCount: w.fence.posts.length, perched, visibleAboveEverything };
   });
   expect(result.inside).toBe(true); expect(result.closed.eyes).toBe(2); expect(result.closed.nose).toBeGreaterThan(0);
-  expect(result.postInk).toBe(result.postCount); expect(result.postCount).toBe(7);
+  expect(result.postInk).toBe(result.postCount); expect(result.postCount).toBe(6);
   expect(result.open.eyes).toBeGreaterThan(result.closed.eyes); expect(result.open.word).toBe('WOOF!'); expect(result.quiet.word).toBe(''); expect(result.perched).toBe(true); expect(result.visibleAboveEverything).toBe(true);
   await page.screenshot({ path: `docs/${info.project.name}-pen-bark.png` });
+});
+
+test('the short 2:1 pen has a working left gate for release and recall', async ({ page }, info) => {
+  const initial = await state(page);
+  expect(initial.gateOpen).toBe(0); expect(initial.dog.atHome).toBe(true); expect(initial.dog.recallReady).toBe(true);
+  expect(initial.pen.right - initial.pen.left).toBeCloseTo(2 * (initial.pen.bottom - initial.pen.top));
+  const closedDoor = await page.evaluate(() => {
+    const { world: w, renderer: r } = (window as any).__meadow;
+    return r.cellAt(w.pen.left, w.home.y).family;
+  });
+  expect(closedDoor).toBe(5);
+  await page.mouse.move(initial.width * 0.4, initial.height * 0.4); await page.keyboard.press('r');
+  const released = await page.evaluate(() => {
+    const app = (window as any).__meadow, w = app.world;
+    for (let i = 0; i < 8; i++) w.step(1 / 60);
+    app.renderer.render();
+    return { gate: w.gateOpen, passage: w.dog.penTransit, launching: w.dog.launching,
+      ink: app.renderer.cellAt(w.pen.left, w.home.y).family };
+  });
+  expect(released.gate).toBe(1); expect(released.passage).toBe('exit'); expect(released.launching).toBe(true); expect(released.ink).not.toBe(5);
+  await page.screenshot({ path: `docs/${info.project.name}-pen-gate-open.png` });
+  await page.evaluate(() => {
+    const app = (window as any).__meadow; for (let i = 0; i < 360; i++) app.world.step(1 / 60); app.renderer.render();
+  });
+  const outside = await state(page); expect(outside.dog.atHome).toBe(false); expect(outside.gateOpen).toBe(0);
+  await page.keyboard.press('r');
+  await page.evaluate(() => {
+    const app = (window as any).__meadow; for (let i = 0; i < 1200; i++) app.world.step(1 / 60); app.controller.sync(); app.renderer.render();
+  });
+  const home = await state(page); expect(home.dog.atHome).toBe(true); expect(home.gateOpen).toBe(0);
+  expect(home.dog.x).toBe(home.home.x); expect(home.dog.y).toBe(home.home.y);
+  await page.screenshot({ path: `docs/${info.project.name}-pen-gate.png` });
 });
