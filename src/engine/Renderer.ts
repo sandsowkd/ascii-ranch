@@ -1,20 +1,19 @@
 import { clamp, hash3, lineGlyph } from '../vendor/pond-math';
 import type { Sheep, World } from '../simulation/World';
 
-/** Pond's glyph tiles, local ink and cached font, adapted into a living pasture.
- * Math helpers and tile treatment derive from stqfdyr/ascii-pond (MIT).
+/** Pond's density ramp, local ink and cached font, adapted into a living pasture.
+ * Math helpers and density ramp derive from stqfdyr/ascii-pond (MIT).
  * Copyright (c) 2026 stqfdyr; public/licenses/ascii-pond-MIT.txt. */
-const GLYPHS = ".,:;'`|/\\v!+*ox@O%#8-=~^<>()[]zZ";
-export const BG = '#171e19';
+export const DENSITY_GLYPHS = "t%SX8@#";
+const GLYPHS = " tSX" + ".,:;'`|/\\v!+*ox@O%#8-=~^<>()[]zZ";
+export const BG = '#000000';
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private atlas = document.createElement('canvas');
   private dpr = 1; private aw = 8; private ah = 10;
   private codes = new Uint8Array(0); private levels = new Uint8Array(0); private family = new Uint8Array(0);
-  private tiles = new Uint8Array(0); private tileLevel = new Uint8Array(0);
   private priority = new Uint8Array(0);
   private texture = new Float32Array(0); private atlasCols = GLYPHS.length;
-  private tileColors: string[][] = [];
   constructor(public canvas: HTMLCanvasElement, public world: World) { this.ctx = canvas.getContext('2d', { alpha: false })!; this.resize(); }
   resize() {
     const w = this.world, p = w.pasture;
@@ -22,7 +21,7 @@ export class Renderer {
     this.canvas.width = Math.round(w.width * this.dpr); this.canvas.height = Math.round(w.height * this.dpr);
     const n = p.cols * p.rows;
     this.codes = new Uint8Array(n); this.levels = new Uint8Array(n); this.family = new Uint8Array(n);
-    this.tiles = new Uint8Array(n); this.tileLevel = new Uint8Array(n); this.texture = new Float32Array(n);
+    this.texture = new Float32Array(n);
     this.priority = new Uint8Array(n);
     for (let i = 0; i < n; i++) this.texture[i] = hash3(i % p.cols, Math.floor(i / p.cols), 39);
     this.buildAtlas();
@@ -34,36 +33,34 @@ export class Renderer {
     this.atlas.width = this.aw * this.atlasCols; this.atlas.height = this.ah * 32 * 8;
     const ctx = this.atlas.getContext('2d')!;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `400 ${Math.round(cellH * 0.82 * this.dpr)}px "Geist Mono", monospace`;
-    const lows = [[37, 57, 34], [52, 43, 29], [66, 71, 57], [114, 120, 97], [65, 61, 45], [69, 69, 51], [65, 39, 30], [82, 70, 45]];
-    const highs = [[147, 177, 97], [130, 103, 65], [139, 142, 117], [236, 234, 209], [201, 163, 108], [209, 192, 123], [192, 126, 82], [220, 197, 138]];
+    const lows = [[48, 72, 35], [28, 24, 16], [126, 128, 105], [114, 120, 97], [99, 73, 43], [69, 69, 51], [8, 19, 11], [65, 70, 50]];
+    const highs = [[149, 182, 100], [75, 59, 34], [248, 243, 219], [246, 244, 218], [230, 182, 115], [229, 208, 136], [38, 57, 29], [169, 178, 138]];
     for (let family = 0; family < 8; family++) for (let level = 0; level < 32; level++) {
       const t = level / 31, lo = lows[family], hi = highs[family];
       ctx.fillStyle = `rgb(${Math.round(lo[0] + (hi[0] - lo[0]) * t)},${Math.round(lo[1] + (hi[1] - lo[1]) * t)},${Math.round(lo[2] + (hi[2] - lo[2]) * t)})`;
       for (let g = 0; g < GLYPHS.length; g++) ctx.fillText(GLYPHS[g], g * this.aw + this.aw / 2, (family * 32 + level) * this.ah + this.ah / 2 + this.dpr * 0.35);
     }
-    const tileLo = [[23, 30, 25], [92, 99, 80], [24, 29, 24], [57, 55, 40], [31, 38, 27], [24, 33, 24], [29, 29, 22], [63, 40, 30], [72, 65, 44]];
-    const tileHi = [[28, 34, 27], [226, 226, 203], [57, 65, 48], [139, 113, 76], [77, 87, 54], [35, 49, 29], [51, 42, 28], [134, 78, 51], [157, 139, 95]];
-    this.tileColors = tileLo.map((lo, j) => Array.from({ length: 32 }, (_, i) => `rgb(${lo.map((v, k) => Math.round(v + (tileHi[j][k] - v) * i / 31)).join(',')})`));
+
   }
-  private put(x: number, y: number, glyph: string, level: number, family: number, tile = 0, tileLevel = 0, priority = 0) {
+  private put(x: number, y: number, glyph: string, level: number, family: number, priority = 0) {
     const p = this.world.pasture, c = Math.floor(x / p.cellW), r = Math.floor(y / p.cellH);
     if (c < 0 || c >= p.cols || r < 0 || r >= p.rows) return;
     const i = r * p.cols + c;
     if (priority < this.priority[i]) return;
     this.priority[i] = priority;
     this.codes[i] = Math.max(0, GLYPHS.indexOf(glyph)); this.levels[i] = clamp(Math.round(level * 31), 0, 31);
-    this.family[i] = family; this.tiles[i] = tile; this.tileLevel[i] = clamp(Math.round(tileLevel * 31), 0, 31);
+    this.family[i] = family;
   }
   private shadow(x: number, y: number, rx: number, ry: number) {
     const p = this.world.pasture;
     for (let r = Math.floor((y - ry) / p.cellH); r <= Math.ceil((y + ry) / p.cellH); r++) for (let c = Math.floor((x - rx) / p.cellW); c <= Math.ceil((x + rx) / p.cellW); c++) {
       const px = (c + 0.5) * p.cellW, py = (r + 0.5) * p.cellH;
-      if (((px - x) / rx) ** 2 + ((py - y) / ry) ** 2 < 1) this.put(px, py, '.', 0.05, 0, 3, 0);
+      if (((px - x) / rx) ** 2 + ((py - y) / ry) ** 2 < 1) this.put(px, py, '.', 0.1, 6);
     }
   }
   cellAt(x: number, y: number) {
     const i = this.world.pasture.index(x, y);
-    return { glyph: GLYPHS[this.codes[i]], priority: this.priority[i], tile: this.tiles[i], family: this.family[i], level: this.levels[i] };
+    return { glyph: GLYPHS[this.codes[i]], priority: this.priority[i], tile: 0, family: this.family[i], level: this.levels[i] };
   }
   private sheep(s: Sheep, headsOnly = false) {
     const w = this.world, p = w.pasture, scale = w.scale * s.size;
@@ -73,7 +70,7 @@ export class Renderer {
     if (!headsOnly) {
     for (const front of [-1, 1]) for (const side of [-1, 1]) {
       const f = front * rx * 0.52 + stride * front * side, lateral = side * (ry + 3);
-      this.put(s.x + dx * f + sx * lateral, s.y + dy * f + sy * lateral, lineGlyph(dx + sx * 0.5, dy + sy * 0.5), 0.45, 2, 3, 0.14);
+      this.put(s.x + dx * f + sx * lateral, s.y + dy * f + sy * lateral, lineGlyph(dx + sx * 0.5, dy + sy * 0.5), 0.45, 2);
     }
     const radius = rx + 4;
     for (let r = Math.floor((s.y - radius) / p.cellH); r <= Math.ceil((s.y + radius) / p.cellH); r++) for (let c = Math.floor((s.x - radius) / p.cellW); c <= Math.ceil((s.x + radius) / p.cellW); c++) {
@@ -83,48 +80,43 @@ export class Renderer {
       if (distance > 1) continue;
       const texture = hash3(Math.floor(along / p.cellW), Math.floor(side / p.cellH), s.id + 99);
       const shade = clamp(0.75 + (1 - distance) * 0.16 - oy / radius * 0.1 + (texture - 0.5) * 0.1 + s.wool * 0.04, 0.55, 1);
-      const glyph = texture < 0.22 ? 'o' : texture < 0.45 ? '@' : texture < 0.67 ? '8' : texture < 0.85 ? 'O' : '%';
-      this.put(x, y, glyph, 0.18 + texture * 0.16, 2, 2, shade);
+      const glyph = DENSITY_GLYPHS[clamp(Math.round(shade * 6), 0, 6)];
+      this.put(x, y, glyph, shade, 2);
     }
     this.put(s.x - dx * (rx + 3), s.y - dy * (rx + 3), ',', 0.8, 3);
     return;
     }
     const nibble = s.state === 'grazing' || s.state === 'following' && Math.hypot(s.vx, s.vy) < 3 ? Math.sin(w.time * 5 + s.phase) * 2.5 : 0;
     const hx = s.x + dx * (rx + 4 + nibble), hy = s.y + dy * (rx + 4 + nibble);
-    for (const side of [-1, 1]) this.put(hx + sx * side * 11 * scale - dx * 3, hy + sy * side * 11 * scale - dy * 3, side === 1 ? '\\' : '/', 0.64, 2, 3, 0.48, 2);
+    for (const side of [-1, 1]) this.put(hx + sx * side * 11 * scale - dx * 3, hy + sy * side * 11 * scale - dy * 3, side === 1 ? '\\' : '/', 0.64, 2, 2);
     for (const front of [-0.4, 0.5]) for (const side of [-0.45, 0.45]) {
       const px = hx + dx * front * 11 * scale + sx * side * 12 * scale, py = hy + dy * front * 11 * scale + sy * side * 12 * scale;
-      this.put(px, py, front < 0 ? 'o' : '.', front < 0 ? 0.8 : 0.45, 3, 3, 0.6, 2);
+      this.put(px, py, front < 0 ? 'o' : '.', front < 0 ? 0.8 : 0.45, 3, 2);
     }
   }
   private dog() {
     const w = this.world, d = w.dog;
     if (!d) return;
-    if (d.atHome) {
-      this.put(w.home.doorX - 4, w.home.doorY - 5, 'o', 0.8, 3, 3, 0.4);
-      this.put(w.home.doorX + 4, w.home.doorY - 5, 'o', 0.8, 3, 3, 0.4);
-      return;
-    }
     const p = w.pasture, scale = w.scale, dx = Math.cos(d.heading), dy = Math.sin(d.heading), sx = -dy, sy = dx;
     const rx = 22 * scale, ry = 11.5 * scale, speed = Math.hypot(d.vx, d.vy);
     this.shadow(d.x + 4, d.y + 6, rx + 9, ry + 7);
     for (const front of [-1, 1]) for (const side of [-1, 1]) {
       const f = front * 13 * scale + Math.sin(w.time * (d.sprint > 0 ? 25 : 16) + front * side) * (speed > 3 ? 4 : 0), lateral = side * 15 * scale;
-      this.put(d.x + dx * f + sx * lateral, d.y + dy * f + sy * lateral, lineGlyph(dx, dy), 0.6, 4, 4, 0.32);
+      this.put(d.x + dx * f + sx * lateral, d.y + dy * f + sy * lateral, lineGlyph(dx, dy), 0.6, 4);
     }
     for (let r = Math.floor((d.y - rx) / p.cellH); r <= Math.ceil((d.y + rx) / p.cellH); r++) for (let c = Math.floor((d.x - rx) / p.cellW); c <= Math.ceil((d.x + rx) / p.cellW); c++) {
       const x = (c + 0.5) * p.cellW, y = (r + 0.5) * p.cellH, ox = x - d.x, oy = y - d.y;
       const along = ox * dx + oy * dy, side = ox * sx + oy * sy, distance = (along / rx) ** 2 + (side / ry) ** 2;
       if (distance > 1) continue;
       const chest = along > rx * 0.35 && Math.abs(side) < ry * 0.9;
-      this.put(x, y, chest ? 'o' : '#', chest ? 0.25 : 0.55, chest ? 2 : 4, chest ? 2 : 4, chest ? 0.77 : 0.56 + (1 - distance) * 0.15);
+      this.put(x, y, chest ? 'o' : '#', chest ? 0.85 : 0.8, chest ? 2 : 4);
     }
     this.put(d.x - dx * (rx + 6) + sx * Math.sin(w.time * 7) * 5, d.y - dy * (rx + 6) + sy * Math.sin(w.time * 7) * 5, '~', 0.8, 4);
     const hx = d.x + dx * (rx + 2), hy = d.y + dy * (rx + 2);
-    for (const side of [-1, 1]) this.put(hx + sx * side * 7 - dx * 4, hy + sy * side * 7 - dy * 4, '^', 0.55, 4, 4, 0.55);
-    this.put(hx, hy, 'o', 0.85, 3, 4, 0.85);
+    for (const side of [-1, 1]) this.put(hx + sx * side * 7 - dx * 4, hy + sy * side * 7 - dy * 4, '^', 0.55, 4);
+    this.put(hx, hy, 'o', 0.85, 3);
     const nose = Math.abs(dx) > Math.abs(dy) ? dx > 0 ? '>' : '<' : dy > 0 ? 'v' : '^';
-    this.put(hx + dx * 8, hy + dy * 8, nose, 0.75, 4, 4, 0.65);
+    this.put(hx + dx * 8, hy + dy * 8, nose, 0.75, 4);
     // An unobtrusive copper selection mark makes the dog easy to pick out.
     this.put(d.x - 10, d.y - 25 * scale, '[', 0.5, 4);
     this.put(d.x + 10, d.y - 25 * scale, ']', 0.5, 4);
@@ -139,21 +131,27 @@ export class Renderer {
       }
     }
   }
-  private doghouse() {
-    const w = this.world, p = w.pasture, h = w.home;
-    const rows = ['    ^    ', '   /#\\   ', '  /###\\  ', ' /#####\\ ', ' |#|#|#| ', ' |##^##| ', ' |#|.|#| ', ' +-----+ '];
-    const ox = h.x - 4 * p.cellW, oy = h.y - 3 * p.cellH;
-    this.shadow(h.x + 6, h.y + 26, p.cellW * 4.2, p.cellH * 1.5);
-    for (let r = 0; r < rows.length; r++) for (let c = 0; c < rows[r].length; c++) {
-      const ch = rows[r][c]; if (ch === ' ') continue;
-      const roof = r < 4, door = r >= 5 && c >= 3 && c <= 5;
-      this.put(ox + c * p.cellW, oy + r * p.cellH, ch, roof ? 0.5 : 0.58, roof ? 6 : 7, door ? 3 : roof ? 8 : 9, door ? 0.12 : roof ? 0.72 - r * 0.06 : 0.64);
+  private pen() {
+    const w = this.world, p = w.pasture, b = w.pen;
+    const left = Math.floor(b.left / p.cellW) * p.cellW + p.cellW / 2;
+    const right = Math.floor(b.right / p.cellW) * p.cellW + p.cellW / 2;
+    const top = Math.floor(b.top / p.cellH) * p.cellH + p.cellH / 2;
+    const bottom = Math.floor(b.bottom / p.cellH) * p.cellH + p.cellH / 2;
+    for (let x = left; x <= right; x += p.cellW) {
+      const post = Math.round((x - left) / p.cellW) % 4 === 0 || x === right;
+      this.put(x, top, post ? '+' : '-', 0.85, 7);
+      this.put(x, bottom, post ? '+' : '-', 0.85, 7);
+    }
+    for (let y = top + p.cellH; y < bottom; y += p.cellH) {
+      this.put(right, y, '|', 0.85, 7);
+      // A small open gate faces into the pasture.
+      if (Math.abs(y - w.home.y) > p.cellH * 1.2) this.put(left, y, '|', 0.85, 7);
     }
   }
   private sleep() {
     const w = this.world, d = w.dog; if (!d?.sleeping) return;
-    const x = d.atHome ? w.home.x + 24 * w.scale : d.x + 16 * w.scale;
-    const y = d.atHome ? w.home.y - 30 * w.scale : d.y - 25 * w.scale;
+    const x = d.x + 16 * w.scale;
+    const y = d.y - 25 * w.scale;
     for (let j = 0; j < 3; j++) {
       const phase = (w.time * 0.32 + j / 3) % 1;
       this.put(x + phase * 18, y - phase * 32 * w.scale, j === 2 ? 'Z' : 'z', (1 - phase) * 0.7, 3);
@@ -161,17 +159,21 @@ export class Renderer {
   }
   render() {
     const w = this.world, p = w.pasture, { cellW: cw, cellH: ch, cols, rows } = p, ctx = this.ctx;
-    this.tiles.fill(0); this.priority.fill(0);
+    this.priority.fill(0);
     for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
       const i = r * cols + c, grass = p.grass[i], texture = this.texture[i];
       const wind = Math.sin(c * 0.07 + r * 0.047 - w.time * 0.45) * 0.55 + Math.sin(r * 0.13 - w.time * 0.28) * 0.3;
       const remaining = clamp(grass / Math.max(0.1, p.capacity[i]), 0, 1);
-      const bare = remaining < 0.28 || p.capacity[i] < 0.27;
-      let glyph = bare ? texture > 0.6 ? ':' : '.' : remaining < 0.65 ? texture > 0.55 ? ',' : "'" : grass < 0.59 ? texture > 0.5 ? "'" : ';' : texture < 0.25 ? "'" : texture < 0.48 ? ',' : texture < 0.72 ? '|' : wind > 0.38 ? '/' : wind < -0.38 ? '\\' : 'v';
-      if (p.trampled[i] > 0.3) glyph = texture > 0.5 ? '-' : ',';
-      const richness = clamp((grass - 0.3) / 0.7, 0, 1);
-      let level = bare ? 0.22 + texture * 0.12 : 0.16 + richness * 0.33 + texture * 0.13 + wind * 0.018;
-      let family = bare || p.soil[i] > 0.52 ? 1 : 0;
+      // Pond's exact dense ramp ends in #. No terrain or animal has a tile fill.
+      const density = clamp(remaining - texture * 0.12, 0, 1);
+      let glyph = density > 0.78 ? (texture < 0.27 ? "'" : texture < 0.5 ? ',' : texture < 0.72 ? '|' : texture < 0.85 ? 'v' : texture < 0.93 ? (wind > 0 ? '/' : '\\') : DENSITY_GLYPHS[Math.min(6, Math.floor(texture * 7))]) : density > 0.48 ? DENSITY_GLYPHS[Math.round((density - 0.48) / 0.52 * 4)] :
+        density > 0.28 ? (texture > 0.5 ? ';' : "'") : density > 0.12 ? ',' : '.';
+      if (p.trampled[i] > 0.3 && remaining > 0.45) glyph = texture > 0.5 ? '/' : '\\';
+      const eaten = remaining < 0.42;
+      let family = eaten ? 6 : 0;
+      let level = eaten ? 0.12 + remaining * 0.3 : 0.12 + Math.pow(remaining, 2) * 0.53 + wind * 0.025;
+      // A few tiny flecks of earth, exclusively where almost all grass was eaten.
+      if (remaining < 0.12 && texture > 0.96) { family = 1; level = 0.15; glyph = '.'; }
       if (p.flower[i] >= 0 && grass > 0.5 && remaining > 0.8) { glyph = p.flower[i] > 0.5 ? '*' : '+'; family = p.flower[i] > 0.7 ? 3 : 5; level = 0.45 + texture * 0.25; }
       const edge = Math.min(c * cw, w.width - c * cw, r * ch, w.height - r * ch);
       // Dense meadow at the edges, quiet breathing room for the controls.
@@ -179,17 +181,14 @@ export class Renderer {
       level *= 0.48 + 0.52 * clamp(uiDim, 0, 1);
       if (edge < 21 && grass > 0.62) level += 0.06;
       this.codes[i] = GLYPHS.indexOf(glyph); this.levels[i] = clamp(Math.round(level * 31), 0, 31); this.family[i] = family;
-      if (uiDim > 0.45) {
-        this.tiles[i] = bare || remaining < 0.6 ? 7 : 6;
-        this.tileLevel[i] = Math.round(bare ? 20 + texture * 7 : remaining < 0.6 ? (1 - remaining) * 21 : richness * 11);
-      }
+
     }
     // Feed grains are fixed to their handful, rather than flickering every frame.
     for (const f of w.feed) {
       const remaining = Math.max(3, Math.round(f.amount * 10));
       for (let j = 0; j < remaining; j++) {
         const angle = hash3(j, f.id, 19) * Math.PI * 2, radius = Math.sqrt(hash3(j, f.id, 72)) * 27 * w.scale;
-        this.put(f.x + Math.cos(angle) * radius, f.y + Math.sin(angle) * radius, j % 3 === 0 ? 'o' : '.', 0.74, 5, 4, 0.3);
+        this.put(f.x + Math.cos(angle) * radius, f.y + Math.sin(angle) * radius, j % 3 === 0 ? 'o' : '.', 0.74, 5);
       }
     }
     if (w.marker) {
@@ -201,7 +200,7 @@ export class Renderer {
       const age = bark.age - ring * 0.12;
       if (age > 0) this.ring(bark.x, bark.y, age * 440 * w.scale, (1 - bark.age / 2.4) * (ring ? 0.4 : 0.8), 5);
     }
-    this.doghouse();
+    this.pen();
     for (const s of w.sheep) this.shadow(s.x + 4, s.y + 7, 25.5 * w.scale * s.size + 8, 17.5 * w.scale * s.size + 5);
     for (const s of w.sheep) this.sheep(s);
     this.dog();
@@ -211,7 +210,6 @@ export class Renderer {
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); ctx.fillStyle = BG; ctx.fillRect(0, 0, w.width, w.height); ctx.imageSmoothingEnabled = false;
     for (let i = 0; i < this.codes.length; i++) {
       const x = i % cols * cw, y = Math.floor(i / cols) * ch;
-      if (this.tiles[i]) { ctx.fillStyle = this.tileColors[this.tiles[i] - 1][this.tileLevel[i]]; ctx.fillRect(x + 0.65, y + 0.65, cw - 0.9, ch - 0.9); }
       ctx.drawImage(this.atlas, this.codes[i] * this.aw, (this.family[i] * 32 + this.levels[i]) * this.ah, this.aw, this.ah, x, y, cw, ch);
     }
   }

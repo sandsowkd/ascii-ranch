@@ -10,6 +10,15 @@ describe('the living pasture', () => {
     expect(p.bite(400, 300, 1, 25)).toBeGreaterThan(0);
     expect(p.grass[near]).toBeLessThan(initial); expect(initial - p.grass[near]).toBeLessThanOrEqual(0.055); expect(p.grass[far]).toBe(untouched);
   });
+  it('starts with a completely edible field and paints back only the brush area', () => {
+    const p = new Pasture(900, 700);
+    expect([...p.grass].every(g => g === 1)).toBe(true);
+    expect([...p.capacity].every(g => g === 1)).toBe(true);
+    expect([...p.soil].every(g => g === 0)).toBe(true);
+    p.grass.fill(0); p.trampled.fill(1); p.regrow(450, 350);
+    expect(p.at(450, 350)).toBe(1); expect(p.trampled[p.index(450, 350)]).toBe(0);
+    expect(p.at(80, 80)).toBe(0);
+  });
   it('regrows eaten grass and recovers flattened blades', () => {
     const p = new Pasture(900, 700), i = p.index(400, 300);
     p.grass[i] = 0; p.tread(400, 300, 1); const tread = p.trampled[i];
@@ -41,12 +50,22 @@ describe('a controllable sheepdog', () => {
     const w = new World(1200, 800, 0); w.sendDog(250, 250);
     const start = { x: w.dog!.x, y: w.dog!.y }; w.step(1 / 60);
     expect(Math.hypot(w.dog!.x - start.x, w.dog!.y - start.y)).toBeLessThanOrEqual(SPEEDS.dogWalk / 60 + 0.001);
-    advance(w, 6); expect(Math.hypot(w.dog!.x - 250, w.dog!.y - 250)).toBeLessThan(2);
+    advance(w, 20); expect(Math.hypot(w.dog!.x - 250, w.dog!.y - 250)).toBeLessThan(2);
   });
   it('nearby sheep move away from the dog', () => {
     const w = new World(900, 700, 1), s = w.sheep[0]; s.x = 500; s.y = 300;
-    w.toggleDog(); Object.assign(w.dog!, { x: 420, y: 300, targetX: 420, targetY: 300 });
+    w.toggleDog(); Object.assign(w.dog!, { x: 450, y: 300, targetX: 450, targetY: 300, arrived: true });
     advance(w, 0.5); expect(s.x).toBeGreaterThan(504); expect(s.state).toBe('startled');
+  });
+  it('sleeping dogs gently repel sheep in a smaller radius than a chase', () => {
+    const w = new World(1200, 900, 1), s = w.sheep[0];
+    Object.assign(s, { x: 530, y: 400, timer: 100 }); w.toggleDog();
+    Object.assign(w.dog!, { x: 500, y: 400, targetX: 500, targetY: 400, arrived: true, sleeping: true, idleTime: 8 });
+    const small = w.dogAvoidanceRadius(); advance(w, 1);
+    expect(s.x).toBeGreaterThan(532); expect(s.state).toBe('grazing'); expect(Math.hypot(s.vx, s.vy)).toBeLessThan(10);
+    w.sendDog(600, 400); expect(w.dogAvoidanceRadius()).toBeGreaterThan(small * 1.5);
+    expect(w.pen.left).toBeGreaterThan(w.width * 0.75); expect(w.pen.top).toBeGreaterThan(w.height * 0.7);
+    w.cast('r'); expect(w.dog!.targetX).toBeGreaterThan(w.pen.left); expect(w.dog!.targetX).toBeLessThan(w.pen.right);
   });
   it('bark releases a traveling pulse that adds an outward push', () => {
     const make = () => { const w = new World(900, 700, 1); w.sheep[0].x = 570; w.sheep[0].y = 300; w.toggleDog(); Object.assign(w.dog!, { x: 400, y: 300, targetX: 400, targetY: 300 }); return w; };
@@ -82,7 +101,7 @@ describe('a controllable sheepdog', () => {
     expect(visited.size).toBe(4); expect(w.dog!.orbit).toBeNull();
     w.cast('w'); w.sendDog(100, 150); expect(w.dog!.orbit).toBeNull();
   });
-  it('R recalls to the doghouse, then sprints to the cursor with no click', () => {
+  it('R recalls to the bottom-right pen, then sprints to the cursor with no click', () => {
     const w = new World(1200, 900, 0); w.sendDog(700, 400); advance(w, 3);
     w.cast('r'); expect(w.dog!.recalling).toBe(true); expect(w.dog!.targetX).toBe(w.home.doorX);
     advance(w, 12); expect(w.dog!.atHome).toBe(true); expect(w.dog!.x).toBeCloseTo(w.home.doorX);

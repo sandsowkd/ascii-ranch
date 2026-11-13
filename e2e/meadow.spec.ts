@@ -19,13 +19,13 @@ test('living grass, grazing sheep, full canvas and no errors', async ({ page }, 
     }
     return ink / total;
   });
-  expect(coverage).toBeGreaterThan(0.96); expect(errors).toEqual([]);
+  expect(coverage).toBeGreaterThan(0.94); expect(errors).toEqual([]);
   mkdirSync('docs', { recursive: true }); await page.screenshot({ path: `docs/${info.project.name}.png` });
 });
 
-test('right-click movement, stronger bark and immediate recasts without cooldowns', async ({ page }) => {
+test('left-click movement, stronger bark and immediate recasts without cooldowns', async ({ page }) => {
   const first = await state(page), x = first.width * 0.7, y = first.height * 0.4;
-  await page.mouse.click(x, y, { button: 'right' }); const commanded = await state(page);
+  await page.mouse.click(x, y); const commanded = await state(page);
   expect(commanded.dog).not.toBeNull(); expect(commanded.dog.targetX).toBeCloseTo(x, 0); expect(commanded.feed.length).toBe(0);
   const distance = Math.hypot(commanded.dog.x - x, commanded.dog.y - y);
   await expect.poll(async () => { const s = await state(page); return Math.hypot(s.dog.x - x, s.dog.y - y); }).toBeLessThan(distance - 10);
@@ -52,15 +52,15 @@ test('W covers the entire flock; R recalls then launches straight to the cursor'
   await page.screenshot({ path: `docs/${info.project.name}-herding.png` });
 });
 
-test('single left-clicks feed without calling or redirecting the dog; flock controls persist', async ({ page }) => {
+test('single right-clicks feed without calling or redirecting the dog; flock controls persist', async ({ page }) => {
   const first = await state(page);
   await page.getByRole('button', { name: 'Add a sheep', exact: true }).click(); expect((await state(page)).count).toBe(19);
   await page.reload(); expect((await state(page)).count).toBe(19);
   await page.getByRole('button', { name: 'Remove a sheep', exact: true }).click(); expect((await state(page)).count).toBe(18);
-  await page.mouse.click(first.width * 0.5, first.height * 0.4);
+  await page.mouse.click(first.width * 0.5, first.height * 0.4, { button: 'right' });
   expect((await state(page)).feed.length).toBe(1); expect((await state(page)).dog).toBeNull();
-  await page.mouse.click(first.width * 0.7, first.height * 0.4, { button: 'right' }); const commanded = await state(page);
-  await page.mouse.click(first.width * 0.4, first.height * 0.45); const fed = await state(page);
+  await page.mouse.click(first.width * 0.7, first.height * 0.4); const commanded = await state(page);
+  await page.mouse.click(first.width * 0.4, first.height * 0.45, { button: 'right' }); const fed = await state(page);
   expect(fed.feed.length).toBe(2); expect(fed.dog.targetX).toBe(commanded.dog.targetX); expect(fed.dog.targetY).toBe(commanded.dog.targetY);
   await page.locator('#dog-button').click(); expect((await state(page)).dog.recallReady).toBe(true);
   await page.locator('#dog-button').click(); expect((await state(page)).dog.launching).toBe(true);
@@ -105,10 +105,10 @@ test('sheep heads keep priority over overlapping wool', async ({ page }) => {
     app.renderer.render();
     return app.renderer.cellAt(x + 25.5 * scale + 4 - 4.4 * scale, y - 5.4 * scale);
   });
-  expect(result.priority).toBe(2); expect(result.tile).toBe(3); expect(result.glyph).toBe('o');
+  expect(result.priority).toBe(2); expect(result.tile).toBe(0); expect(result.glyph).toBe('o');
 });
 
-test('uneaten turf is green, grazed soil is brown, and idle dogs show drifting Zs', async ({ page }, info) => {
+test('uneaten turf is light green, grazed turf is dark green on black, and idle dogs show drifting Zs', async ({ page }, info) => {
   const result = await page.evaluate(() => {
     const app = (window as any).__meadow, w = app.world, p = w.pasture;
     w.paused = true; w.sheep.length = 0;
@@ -116,8 +116,8 @@ test('uneaten turf is green, grazed soil is brown, and idle dogs show drifting Z
     p.capacity[a] = p.capacity[b] = 0.8; p.grass[a] = 0.8; p.grass[b] = 0.02; p.soil[a] = p.soil[b] = 0; p.flower[a] = p.flower[b] = -1;
     app.renderer.render(); return { full: app.renderer.cellAt(x, y), eaten: app.renderer.cellAt(x + 50, y) };
   });
-  expect(result.full.family).toBe(0); expect(result.eaten.family).toBe(1);
-  expect(result.full.tile).toBe(6); expect(result.eaten.tile).toBe(7);
+  expect(result.full.family).toBe(0); expect([6, 1]).toContain(result.eaten.family);
+  expect(result.full.tile).toBe(0); expect(result.eaten.tile).toBe(0); expect(result.full.level).toBeGreaterThan(result.eaten.level + 9);
   const asleep = await page.evaluate(() => {
     const app = (window as any).__meadow, w = app.world; w.reset(18); w.paused = false; w.toggleDog();
     for (let frame = 0; frame < 450; frame++) w.step(1 / 60);
@@ -130,4 +130,52 @@ test('uneaten turf is green, grazed soil is brown, and idle dogs show drifting Z
   });
   expect(asleep.sleeping).toBe(true); expect(asleep.zs).toBeGreaterThan(0);
   await page.screenshot({ path: `docs/${info.project.name}-sleep.png` });
+});
+
+
+test('Space toggles a continuous hover regrow brush; P pauses independently', async ({ page }) => {
+  const first = await state(page), x = first.width * 0.3, end = first.width * 0.7, y = first.height * 0.4;
+  await page.keyboard.press('p'); expect((await state(page)).paused).toBe(true);
+  await page.evaluate(() => { const p = (window as any).__meadow.world.pasture; p.grass.fill(0); p.trampled.fill(1); });
+  await page.mouse.move(x, y); await page.keyboard.press('Space');
+  expect((await state(page)).regrowMode).toBe(true); expect((await state(page)).paused).toBe(true);
+  await page.mouse.move(end, y);
+  const painted = await page.evaluate(({ x, end, y }) => {
+    const p = (window as any).__meadow.world.pasture;
+    return { start: p.at(x, y), middle: p.at((x + end) / 2, y), end: p.at(end, y), far: p.at(x, y + 80) };
+  }, { x, end, y });
+  expect(painted).toEqual({ start: 1, middle: 1, end: 1, far: 0 });
+  await page.keyboard.press('Space'); await page.mouse.move(x, y + 80);
+  expect((await state(page)).regrowMode).toBe(false);
+  expect(await page.evaluate(({ x, y }) => (window as any).__meadow.world.pasture.at(x, y + 80), { x, y })).toBe(0);
+  await page.keyboard.press('p'); expect((await state(page)).paused).toBe(false);
+  expect((await state(page)).dog).toBeNull(); expect((await state(page)).feed).toHaveLength(0);
+});
+
+test('terrain uses colored glyphs on pure black; brown is rare and only on eaten grass', async ({ page }, info) => {
+  const result = await page.evaluate(() => {
+    const app = (window as any).__meadow, w = app.world, p = w.pasture; w.paused = true; w.sheep.length = 0;
+    p.flower.fill(-1); p.grass.fill(1); app.renderer.render();
+    let freshBrown = 0, brown = 0, dark = 0, full = 0;
+    for (let r = 10; r < p.rows - 20; r++) for (let c = 5; c < p.cols - 5; c++) {
+      if (app.renderer.cellAt(c * p.cellW, r * p.cellH).family === 1) freshBrown++;
+    }
+    p.grass.fill(0.02); app.renderer.render();
+    for (let r = 10; r < p.rows - 20; r++) for (let c = 5; c < p.cols - 5; c++) {
+      const cell = app.renderer.cellAt(c * p.cellW, r * p.cellH); full++;
+      if (cell.family === 1) brown++; if (cell.family === 6) dark++;
+    }
+    const ctx = app.renderer.canvas.getContext('2d'), d = app.renderer.canvas.width / w.width;
+    const pixels = ctx.getImageData(Math.floor(w.width * 0.3 * d), Math.floor(w.height * 0.3 * d), 100, 100).data;
+    let black = 0; for (let i = 0; i < pixels.length; i += 4) if (pixels[i] === 0 && pixels[i+1] === 0 && pixels[i+2] === 0) black++;
+    return { freshBrown, ratio: brown / full, dark: dark / full, black: black / (pixels.length / 4) };
+  });
+  expect(result.freshBrown).toBe(0); expect(result.ratio).toBeLessThan(0.07); expect(result.dark).toBeGreaterThan(0.92); expect(result.black).toBeGreaterThan(0.8);
+  await page.evaluate(() => {
+    const app = (window as any).__meadow, w = app.world, p = w.pasture; w.reset(18); w.paused = true;
+    for (const s of w.sheep) { for (let i = 0; i < 10; i++) p.bite(s.x - 22 + i * 4, s.y + 10, 25, 24); }
+    w.toggleDog(); Object.assign(w.dog, { x: w.width * 0.64, y: w.height * 0.6, targetX: w.width * 0.64, targetY: w.height * 0.6, heading: -2.5 });
+    app.controller.sync(); app.renderer.render();
+  });
+  await page.screenshot({ path: `docs/${info.project.name}-grass.png` });
 });

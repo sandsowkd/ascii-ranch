@@ -3,6 +3,7 @@ import type { Renderer } from '../engine/Renderer';
 
 export class Controller {
   feedMode = false;
+  regrowMode = false;
   pointer = { x: 0, y: 0 };
   private abort = new AbortController();
   private downAt = 0; private startX = 0; private startY = 0;
@@ -22,8 +23,9 @@ export class Controller {
     window.addEventListener('blur', this.cancel, opts);
     document.querySelector('#add-sheep')!.addEventListener('click', () => { if (world.addSheep()) { this.toast('one more little wanderer.'); this.persist(); } this.sync(); renderer.render(); }, opts);
     document.querySelector('#remove-sheep')!.addEventListener('click', () => { world.removeSheep(); this.persist(); this.sync(); renderer.render(); }, opts);
-    document.querySelector('#dog-button')!.addEventListener('click', () => { if (!world.dog) { world.toggleDog(); this.toast('right-click the meadow to send your dog there.'); } else this.cast('r'); this.sync(); renderer.render(); }, opts);
+    document.querySelector('#dog-button')!.addEventListener('click', () => { if (!world.dog) { world.toggleDog(); this.toast('left-click the meadow to send your dog there.'); } else this.cast('r'); this.sync(); renderer.render(); }, opts);
     document.querySelector('#feed-button')!.addEventListener('click', () => this.toggleFeed(), opts);
+    document.querySelector('#regrow-button')!.addEventListener('click', () => this.toggleRegrow(), opts);
     document.querySelector('#pause')!.addEventListener('click', () => this.setPaused(!world.paused), opts);
     document.querySelector('#reset')!.addEventListener('click', () => { this.cancel(); world.reset(); this.sync(); renderer.render(); this.toast('a fresh patch of green.'); }, opts);
     document.querySelector('#help-toggle')!.addEventListener('click', () => {
@@ -36,9 +38,10 @@ export class Controller {
       const key = e.key.toLowerCase();
       if (['q', 'w', 'e', 'r'].includes(key)) { e.preventDefault(); this.cast(key as Ability); }
       if (key === 'f') this.toggleFeed();
-      if (e.code === 'Space' && !(e.target instanceof HTMLButtonElement)) { e.preventDefault(); this.setPaused(!world.paused); }
+      if (e.code === 'Space') { e.preventDefault(); this.toggleRegrow(); }
+      if (key === 'p') { e.preventDefault(); this.setPaused(!world.paused); }
       if (key === 'h') document.body.classList.toggle('hide-ui');
-      if (e.key === 'Escape') { this.feedMode = false; this.sync(); document.querySelector<HTMLElement>('#help')!.hidden = true; document.querySelector('#help-toggle')!.setAttribute('aria-expanded', 'false'); document.body.classList.remove('hide-ui'); }
+      if (e.key === 'Escape') { this.feedMode = false; this.regrowMode = false; this.sync(); document.querySelector<HTMLElement>('#help')!.hidden = true; document.querySelector('#help-toggle')!.setAttribute('aria-expanded', 'false'); document.body.classList.remove('hide-ui'); }
       this.wake();
     }, opts);
     window.addEventListener('pointermove', this.wake, opts); window.addEventListener('pointerdown', this.wake, opts); window.addEventListener('focusin', this.wake, opts);
@@ -50,23 +53,26 @@ export class Controller {
     e.preventDefault(); this.pointerId = e.pointerId; this.button = e.button;
     this.canvas.setPointerCapture(e.pointerId); this.pointer = this.coords(e);
     this.startX = this.pointer.x; this.startY = this.pointer.y; this.downAt = performance.now(); this.dragged = false;
+    if (this.regrowMode) { this.paint(this.pointer, this.pointer); return; }
     if (this.world.paused) return;
-    if (e.button === 2) { this.feedMode = false; this.world.sendDog(this.pointer.x, this.pointer.y); this.sync(); }
+    if (e.button === 0 && e.pointerType !== 'touch' && !this.feedMode) { this.world.sendDog(this.pointer.x, this.pointer.y); this.sync(); }
   };
   private move = (e: PointerEvent) => {
     if (this.pointerId !== null && e.pointerId !== this.pointerId) return;
-    this.pointer = this.coords(e);
+    const previous = this.pointer; this.pointer = this.coords(e);
+    if (this.regrowMode) { this.paint(previous, this.pointer); return; }
     if (this.pointerId !== null && Math.hypot(this.pointer.x - this.startX, this.pointer.y - this.startY) > 6) this.dragged = true;
     if (this.world.paused) return;
-    if (this.pointerId !== null && this.button === 2) this.world.sendDog(this.pointer.x, this.pointer.y);
+    if (this.pointerId !== null && this.button === 0 && e.pointerType !== 'touch' && !this.feedMode) this.world.sendDog(this.pointer.x, this.pointer.y);
   };
   private up = (e: PointerEvent) => {
     if (e.pointerId !== this.pointerId) return;
     const p = this.coords(e);
-    if (!this.world.paused && this.button === 0) {
-      if (e.pointerType !== 'touch' && !this.dragged || this.feedMode || e.pointerType === 'touch' && !this.dragged && performance.now() - this.downAt > 450) {
+    if (!this.world.paused && !this.regrowMode) {
+      const touchFeed = e.pointerType === 'touch' && !this.dragged && performance.now() - this.downAt > 450;
+      if (!this.dragged && (this.button === 2 || this.feedMode || touchFeed)) {
         this.world.addFeed(p.x, p.y); this.feedMode = false; this.toast('a little something to nibble.');
-      } else if (e.pointerType === 'touch' && !this.dragged) this.world.sendDog(p.x, p.y);
+      } else if (e.pointerType === 'touch' && this.button === 0 && !this.dragged) this.world.sendDog(p.x, p.y);
     }
     this.cancel(); this.sync(); this.renderer.render();
     if (this.canvas.hasPointerCapture(e.pointerId)) this.canvas.releasePointerCapture(e.pointerId);
@@ -74,11 +80,21 @@ export class Controller {
   private cancel = () => { this.pointerId = null; this.button = -1; this.canvas.classList.remove('dragging'); };
   cast(key: Ability) {
     if (this.world.cast(key, this.pointer)) {
-      const text: Record<Ability, string> = { q: 'woof! everybody, make some room.', w: 'the long way round. every last sheep.', e: 'a quick pair of paws.', r: this.world.dog?.recallReady ? 'home for a moment. r again to race to your cursor.' : 'back to the meadow!' };
+      const text: Record<Ability, string> = { q: 'woof! everybody, make some room.', w: 'the long way round. every last sheep.', e: 'a quick pair of paws.', r: this.world.dog?.recallReady ? 'back to the pen. r again to race to your cursor.' : 'back to the meadow!' };
       this.toast(text[key]); this.sync(); this.renderer.render();
     }
   }
-  private toggleFeed() { this.feedMode = !this.feedMode; this.sync(); if (this.feedMode) this.toast('click a patch of grass to scatter feed.'); }
+  private toggleFeed() { this.feedMode = !this.feedMode; this.regrowMode = false; this.sync(); if (this.feedMode) this.toast('click a patch of grass to scatter feed.'); }
+  private toggleRegrow() {
+    this.regrowMode = !this.regrowMode; this.feedMode = false; this.cancel(); this.sync();
+    if (this.regrowMode) { this.paint(this.pointer, this.pointer); this.toast('regrow brush on. hover to grow; space to finish.'); }
+    else this.toast('regrow brush off.');
+  }
+  private paint(from: { x: number; y: number }, to: { x: number; y: number }) {
+    const distance = Math.hypot(to.x - from.x, to.y - from.y), steps = Math.max(1, Math.ceil(distance / 12));
+    for (let i = 0; i <= steps; i++) this.world.pasture.regrow(from.x + (to.x - from.x) * i / steps, from.y + (to.y - from.y) * i / steps, 34 * this.world.scale);
+    this.renderer.render();
+  }
   setPaused(paused: boolean) { this.world.paused = paused; this.cancel(); this.sync(); this.renderer.render(); }
   private persist() { try { localStorage.setItem('ascii-meadow.count.v1', String(this.world.sheep.length)); } catch { /* optional storage */ } }
   private toast(text: string) {
@@ -97,6 +113,8 @@ export class Controller {
     pause.textContent = this.world.paused ? 'resume' : 'pause'; pause.setAttribute('aria-pressed', String(this.world.paused)); pause.setAttribute('aria-label', this.world.paused ? 'Resume meadow' : 'Pause meadow');
     document.querySelector<HTMLElement>('#paused-note')!.hidden = !this.world.paused;
     document.querySelector('#feed-button')!.setAttribute('aria-pressed', String(this.feedMode)); this.canvas.classList.toggle('feed-mode', this.feedMode);
+    document.querySelector('#regrow-button')!.setAttribute('aria-pressed', String(this.regrowMode));
+    this.canvas.classList.toggle('regrow-mode', this.regrowMode);
     this.tick(true);
   }
   tick(force = false) {

@@ -45,7 +45,19 @@ export class World {
     return { left: b.left + pad, right: b.right - pad, top: b.top + pad,
       bottom: Math.max(b.top + pad + 30, b.bottom - pad) };
   }
-  get home() { const x = 19 + 60 * this.scale, y = 109 + 17 * this.scale; return { x, y, doorX: x, doorY: y + 23 * this.scale }; }
+  get pen(): Rect {
+    const right = this.width - 32 * this.scale, bottom = this.dogBounds.bottom - 5 * this.scale;
+    return { left: right - 108 * this.scale, right, top: bottom - 70 * this.scale, bottom };
+  }
+  get home() {
+    const b = this.pen, x = (b.left + b.right) / 2, y = (b.top + b.bottom) / 2;
+    return { x, y, doorX: x, doorY: y };
+  }
+  dogAvoidanceRadius() {
+    const d = this.dog;
+    if (!d || d.atHome) return 0;
+    return (d.sleeping ? 56 : d.sprint > 0 || d.launching ? 145 : !d.arrived || d.orbit ? 112 : 76) * this.scale;
+  }
   private clampTo(x: number, y: number, b: Rect) {
     return { x: clamp(x, b.left, Math.max(b.left, b.right)), y: clamp(y, b.top, Math.max(b.top, b.bottom)) };
   }
@@ -74,8 +86,8 @@ export class World {
   removeSheep() { return this.sheep.pop() !== undefined; }
   toggleDog() {
     if (this.dog) { this.dog = null; return false; }
-    const p = this.dogPoint(this.home.doorX + 38 * this.scale, this.home.doorY + 42 * this.scale);
-    this.dog = { ...p, vx: 0, vy: 0, heading: 0.6, targetX: p.x, targetY: p.y, arrived: true,
+    const p = this.dogPoint(this.pen.left - 42 * this.scale, this.home.y);
+    this.dog = { ...p, vx: 0, vy: 0, heading: -2.8, targetX: p.x, targetY: p.y, arrived: true,
       sprint: 0, orbit: null, orbitSide: 0, orbitLeg: 0, orbitEntering: false, orbitEntry: 0.5,
       anchorX: p.x, anchorY: p.y, recallReady: false, recalling: false, atHome: false, launching: false, idleTime: 0, sleeping: false };
     return true;
@@ -154,7 +166,7 @@ export class World {
       const p = this.clampPoint(s.x + Math.cos(a) * radius * this.scale, s.y + Math.sin(a) * radius * this.scale);
       let quality = this.pasture.at(p.x, p.y) - Math.hypot(p.x - s.x, p.y - s.y) * 0.001;
       for (const other of this.sheep) if (other !== s && Math.hypot(other.x - p.x, other.y - p.y) < 60 * this.scale) quality -= 0.35;
-      if (this.dog && !this.dog.atHome && !this.dog.sleeping) quality -= Math.max(0, 135 - Math.hypot(p.x - this.dog.x, p.y - this.dog.y)) * 0.008;
+      if (this.dog) quality -= Math.max(0, this.dogAvoidanceRadius() - Math.hypot(p.x - this.dog.x, p.y - this.dog.y)) * 0.015;
       if (Math.hypot(p.x - this.home.x, p.y - this.home.y) < 72 * this.scale) quality -= 2;
       if (quality > score) { score = quality; bestX = p.x; bestY = p.y; }
     }
@@ -201,8 +213,9 @@ export class World {
     for (const s of this.sheep) {
       s.timer -= dt; s.hunger = Math.min(1, s.hunger + dt * 0.004);
       let desiredX = 0, desiredY = 0, speed = s.speed * scale;
-      const dogDist = dog && !dog.atHome && !dog.sleeping ? Math.hypot(s.x - dog.x, s.y - dog.y) : Infinity;
-      const alertRadius = (dog && (dog.sprint > 0 || dog.launching) ? 155 : 110) * scale * s.courage;
+      const dogDist = dog && !dog.atHome ? Math.hypot(s.x - dog.x, s.y - dog.y) : Infinity;
+      const avoidRadius = this.dogAvoidanceRadius();
+      const alertRadius = dog?.sleeping ? 0 : avoidRadius * s.courage;
       let food: Feed | undefined, nearest = 380 * scale;
       if (this.panicLeft <= 0 && dogDist > alertRadius * 0.85) for (const f of this.feed) {
         const d = Math.hypot(f.x - s.x, f.y - s.y); if (d < nearest && f.amount > 0.015) { food = f; nearest = d; }
@@ -242,6 +255,13 @@ export class World {
         if (other === s) continue;
         const dx = s.x - other.x, dy = s.y - other.y, d = Math.hypot(dx, dy), spacing = 64 * scale * (s.size + other.size) * 0.5;
         if (d < spacing) { const k = (1 - d / spacing) ** 2 * 30 * scale; desiredX += (d < 0.001 ? s.id < other.id ? -1 : 1 : dx / d) * k; desiredY += (d < 0.001 ? 0.3 : dy / d) * k; }
+      }
+      // Sleeping dogs still get a little personal space, without startling the flock.
+      if (dog?.sleeping && dogDist < avoidRadius) {
+        const dx = s.x - dog.x, dy = s.y - dog.y, distance = dogDist || 1;
+        const push = (1 - dogDist / avoidRadius) * 12 * scale;
+        desiredX += (dogDist < 0.001 ? 1 : dx / distance) * push;
+        desiredY += dy / distance * push;
       }
       const hx = s.x - this.home.x, hy = s.y - this.home.y, hd = Math.hypot(hx, hy) || 1;
       if (hd < 70 * scale) { desiredX += hx / hd * 25 * scale; desiredY += hy / hd * 25 * scale; }
