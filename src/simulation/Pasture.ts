@@ -23,7 +23,7 @@ export class Pasture {
       const path = Math.exp(-Math.pow((ny - (0.76 - nx * 0.53 + Math.sin(nx * 8) * 0.065)) / 0.028, 2));
       this.soil[i] = clamp(path * 0.7 + (1 - n1) * 0.28, 0, 1);
       this.capacity[i] = clamp(0.46 + n1 * 0.64 + (n2 - 0.5) * 0.18 - path * 0.56, 0.12, 1);
-      this.grass[i] = this.capacity[i] * (0.75 + hash3(c, r, 12) * 0.25);
+      this.grass[i] = this.capacity[i] * (0.92 + hash3(c, r, 12) * 0.08);
       this.flower[i] = n1 > 0.5 && hash3(c, r, 231) > 0.991 ? hash3(c, r, 71) : -1;
       if (preserve && oldCols && oldRows) {
         const from = Math.min(oldRows - 1, Math.floor(r / this.rows * oldRows)) * oldCols + Math.min(oldCols - 1, Math.floor(c / this.cols * oldCols));
@@ -41,7 +41,7 @@ export class Pasture {
       for (let c = Math.max(0, Math.floor((x - radius) / this.cellW)); c <= Math.min(this.cols - 1, Math.floor((x + radius) / this.cellW)); c++) {
         const d = Math.hypot((c + 0.5) * this.cellW - x, (r + 0.5) * this.cellH - y);
         if (d >= radius) continue;
-        const i = r * this.cols + c, amount = Math.min(this.grass[i], dt * 0.19 * (1 - d / radius));
+        const i = r * this.cols + c, amount = Math.min(this.grass[i], dt * 0.055 * (1 - d / radius));
         this.grass[i] -= amount; eaten += amount;
       }
     }
@@ -61,7 +61,7 @@ export class Pasture {
     const elapsed = this.growthClock; this.growthClock = 0;
     const decay = Math.exp(-elapsed * 0.65);
     for (let i = 0; i < this.grass.length; i++) {
-      this.grass[i] = Math.min(this.capacity[i], this.grass[i] + elapsed * 0.009 * (0.7 + this.capacity[i] * 0.3));
+      this.grass[i] = Math.min(this.capacity[i], this.grass[i] + elapsed * 0.0045 * (0.7 + this.capacity[i] * 0.3));
       this.trampled[i] *= decay;
     }
   }

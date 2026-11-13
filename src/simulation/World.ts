@@ -1,4 +1,4 @@
-import { clamp, TAU } from '../vendor/pond-math';
+import { clamp, hash3, TAU } from '../vendor/pond-math';
 import { Pasture } from './Pasture';
 
 export type SheepState = 'grazing' | 'walking' | 'following' | 'startled';
@@ -8,15 +8,20 @@ export interface Sheep {
   phase: number; size: number; speed: number; courage: number; wool: number; ate: number;
 }
 export type Ability = 'q' | 'w' | 'e' | 'r';
-export const ABILITIES: Record<Ability, { name: string; cooldown: number; duration: number }> = {
-  q: { name: 'Bark', cooldown: 2.8, duration: 1.3 },
-  w: { name: 'Come By', cooldown: 7, duration: 3.6 },
-  e: { name: 'Sprint', cooldown: 5, duration: 0.85 },
-  r: { name: 'Hold the Flock', cooldown: 16, duration: 6 },
+export const ABILITIES: Record<Ability, { name: string; duration: number }> = {
+  q: { name: 'Bark', duration: 2.4 }, w: { name: 'Come By', duration: 0 },
+  e: { name: 'Sprint', duration: 1.25 }, r: { name: 'Recall / Release', duration: 0 },
 };
-export interface Dog { x: number; y: number; vx: number; vy: number; heading: number; targetX: number; targetY: number; dragging: boolean; arrived: boolean; sprint: number; orbit: 'w' | 'r' | null; orbitLeft: number; orbitAngle: number; anchorX: number; anchorY: number; orbitRadius: number }
+export const SPEEDS = { sheepWalk: 13, sheepFood: 20, sheepChased: 26, sheepPanic: 64, dogWalk: 62, dogOrbit: 94, dogSprint: 185, dogRelease: 205 };
+export interface Dog {
+  x: number; y: number; vx: number; vy: number; heading: number; targetX: number; targetY: number;
+  arrived: boolean; sprint: number; orbit: 'w' | null; orbitSide: number; orbitLeg: number; orbitEntering: boolean; orbitEntry: number;
+  anchorX: number; anchorY: number; recallReady: boolean; recalling: boolean; atHome: boolean; launching: boolean;
+  idleTime: number; sleeping: boolean;
+}
 export interface Feed { id: number; x: number; y: number; amount: number; age: number; seed: number }
 export interface Bark { x: number; y: number; age: number }
+export interface Rect { left: number; right: number; top: number; bottom: number }
 function seeded(seed: number) {
   let s = seed >>> 0;
   return () => { s += 0x6d2b79f5; let t = Math.imul(s ^ s >>> 15, s | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; };
@@ -24,227 +29,247 @@ function seeded(seed: number) {
 export function angleDelta(from: number, to: number) { return ((to - from + Math.PI * 3) % TAU) - Math.PI; }
 
 export class World {
-  pasture: Pasture;
-  sheep: Sheep[] = [];
-  dog: Dog | null = null;
-  feed: Feed[] = [];
-  barks: Bark[] = [];
-  cooldowns: Record<Ability, number> = { q: 0, w: 0, e: 0, r: 0 };
+  pasture: Pasture; sheep: Sheep[] = []; dog: Dog | null = null; feed: Feed[] = []; barks: Bark[] = [];
   marker: { x: number; y: number; age: number } | null = null;
   time = 0; paused = false; eaten = 0; nextId = 0; nextFeed = 0;
+  panicLeft = 0; panicX = 0; panicY = 0;
   private random = seeded(74821);
-  constructor(public width: number, public height: number, count = 18) {
-    this.pasture = new Pasture(width, height); this.reset(count);
-  }
+  constructor(public width: number, public height: number, count = 18) { this.pasture = new Pasture(width, height); this.reset(count); }
   get scale() { return this.width < 600 ? 0.79 : 1; }
-  get bounds() { return { left: 35 * this.scale, right: this.width - 35 * this.scale, top: 100, bottom: this.height - (this.width < 680 ? 230 : this.width < 1000 ? 180 : 110) }; }
-  clampPoint(x: number, y: number) {
-    const b = this.bounds;
-    return { x: clamp(x, b.left, Math.max(b.left, b.right)), y: clamp(y, Math.min(b.top, this.height * 0.2), Math.max(this.height * 0.35, b.bottom)) };
+  get dogBounds(): Rect {
+    return { left: 18 * this.scale, right: this.width - 18 * this.scale, top: 83,
+      bottom: Math.max(180, this.height - (this.width < 680 ? 180 : this.width < 1000 ? 130 : 65)) };
   }
+  get bounds(): Rect {
+    const b = this.dogBounds, pad = 63 * this.scale;
+    return { left: b.left + pad, right: b.right - pad, top: b.top + pad,
+      bottom: Math.max(b.top + pad + 30, b.bottom - pad) };
+  }
+  get home() { const x = 19 + 60 * this.scale, y = 109 + 17 * this.scale; return { x, y, doorX: x, doorY: y + 23 * this.scale }; }
+  private clampTo(x: number, y: number, b: Rect) {
+    return { x: clamp(x, b.left, Math.max(b.left, b.right)), y: clamp(y, b.top, Math.max(b.top, b.bottom)) };
+  }
+  clampPoint(x: number, y: number) { return this.clampTo(x, y, this.bounds); }
+  dogPoint(x: number, y: number) { return this.clampTo(x, y, this.dogBounds); }
   reset(count = this.sheep.length) {
     this.random = seeded(74821); this.sheep.length = 0; this.dog = null; this.feed.length = 0;
-    this.time = 0; this.eaten = 0; this.nextId = 0; this.nextFeed = 0;
-    this.barks.length = 0; this.cooldowns = { q: 0, w: 0, e: 0, r: 0 }; this.marker = null;
+    this.time = 0; this.eaten = 0; this.nextId = 0; this.nextFeed = 0; this.barks.length = 0; this.marker = null; this.panicLeft = 0;
     this.pasture.resize(this.width, this.height, false);
     for (let i = 0; i < count; i++) this.addSheep(true);
   }
   addSheep(initial = false) {
     if (this.sheep.length >= 80) return false;
-    const rand = this.random, id = this.nextId++, a = rand() * TAU;
-    const group = id % 3, baseX = [0.36, 0.68, 0.48][group], baseY = [0.38, 0.47, 0.67][group];
-    const spreadX = this.width * 0.19, spreadY = this.height * 0.16;
-    const point = initial ? this.clampPoint(this.width * baseX + Math.cos(a) * spreadX * rand(), this.height * baseY + Math.sin(a) * spreadY * rand()) :
-      this.clampPoint(this.width * (0.22 + rand() * 0.56), this.height * (0.28 + rand() * 0.4));
-    // Resolve spawn overlaps before the sheep starts grazing.
-    for (let attempt = 0; attempt < 36; attempt++) {
-      if (!this.sheep.some(s => Math.hypot(s.x - point.x, s.y - point.y) < 58 * this.scale)) break;
-      const p = this.clampPoint(this.width * (0.14 + rand() * 0.72), this.height * (0.25 + rand() * 0.49)); point.x = p.x; point.y = p.y;
+    const rand = this.random, id = this.nextId++, a = rand() * TAU, group = id % 3;
+    const point = initial ? this.clampPoint(this.width * [0.36, 0.68, 0.48][group] + Math.cos(a) * this.width * 0.19 * rand(), this.height * [0.38, 0.47, 0.67][group] + Math.sin(a) * this.height * 0.16 * rand()) :
+      this.clampPoint(this.width * (0.18 + rand() * 0.64), this.height * (0.28 + rand() * 0.43));
+    for (let attempt = 0; attempt < 70; attempt++) {
+      if (!this.sheep.some(s => Math.hypot(s.x - point.x, s.y - point.y) < 62 * this.scale) && Math.hypot(point.x - this.home.x, point.y - this.home.y) > 75 * this.scale) break;
+      Object.assign(point, this.clampPoint(this.width * (0.1 + rand() * 0.8), this.height * (0.2 + rand() * 0.57)));
     }
     this.sheep.push({ id, ...point, vx: 0, vy: 0, heading: rand() * TAU, goalX: point.x, goalY: point.y,
-      timer: 1.5 + rand() * 5.5, hunger: 0.3 + rand() * 0.5, state: 'grazing', phase: rand() * TAU,
-      size: (0.87 + rand() * 0.25), speed: 20 + rand() * 11, courage: 0.8 + rand() * 0.4, wool: rand(), ate: 0 });
+      timer: 8 + rand() * 12, hunger: 0.3 + rand() * 0.5, state: 'grazing', phase: rand() * TAU,
+      size: 0.87 + rand() * 0.25, speed: 8 + rand() * 5, courage: 0.8 + rand() * 0.4, wool: rand(), ate: 0 });
     return true;
   }
   removeSheep() { return this.sheep.pop() !== undefined; }
   toggleDog() {
     if (this.dog) { this.dog = null; return false; }
-    const point = this.clampPoint(this.width * 0.78, this.height * 0.72);
-    this.dog = { ...point, vx: 0, vy: 0, heading: -2.3, targetX: point.x, targetY: point.y, dragging: false, arrived: true, sprint: 0, orbit: null, orbitLeft: 0, orbitAngle: 0, anchorX: point.x, anchorY: point.y, orbitRadius: 160 };
+    const p = this.dogPoint(this.home.doorX + 38 * this.scale, this.home.doorY + 42 * this.scale);
+    this.dog = { ...p, vx: 0, vy: 0, heading: 0.6, targetX: p.x, targetY: p.y, arrived: true,
+      sprint: 0, orbit: null, orbitSide: 0, orbitLeg: 0, orbitEntering: false, orbitEntry: 0.5,
+      anchorX: p.x, anchorY: p.y, recallReady: false, recalling: false, atHome: false, launching: false, idleTime: 0, sleeping: false };
     return true;
   }
   sendDog(x: number, y: number) {
     if (!this.dog) this.toggleDog();
-    const p = this.clampPoint(x, y); this.dog!.targetX = p.x; this.dog!.targetY = p.y; this.dog!.arrived = false;
-    this.dog!.orbit = null; this.dog!.orbitLeft = 0;
+    const p = this.dogPoint(x, y), d = this.dog!;
+    Object.assign(d, { targetX: p.x, targetY: p.y, arrived: false, orbit: null, recallReady: false, recalling: false, atHome: false, launching: false, idleTime: 0, sleeping: false });
     this.marker = { ...p, age: 0 };
   }
+  /** A padded envelope of EVERY sheep, rather than a mean radius. */
+  orbitOutline(): Rect {
+    const lane = this.dogBounds, pad = 58 * this.scale;
+    let left = Infinity, right = -Infinity, top = Infinity, bottom = -Infinity;
+    for (const s of this.sheep) { left = Math.min(left, s.x); right = Math.max(right, s.x); top = Math.min(top, s.y); bottom = Math.max(bottom, s.y); }
+    if (!this.sheep.length) { left = this.width * 0.5 - 45; right = this.width * 0.5 + 45; top = this.height * 0.45 - 40; bottom = this.height * 0.45 + 40; }
+    return { left: Math.max(lane.left, left - pad), right: Math.min(lane.right, right + pad), top: Math.max(lane.top, top - pad), bottom: Math.min(lane.bottom, bottom + pad) };
+  }
   flockCenter() {
-    if (!this.sheep.length) return { x: this.width * 0.5, y: this.height * 0.5, radius: 90 * this.scale };
-    let x = 0, y = 0;
-    for (const s of this.sheep) { x += s.x; y += s.y; }
-    x /= this.sheep.length; y /= this.sheep.length;
-    let spread = 0;
-    for (const s of this.sheep) spread += Math.hypot(s.x - x, s.y - y);
-    return { x, y, radius: clamp(spread / this.sheep.length + 62 * this.scale, 85 * this.scale, Math.min(250, this.width * 0.36)) };
+    const b = this.orbitOutline(), x = (b.left + b.right) / 2, y = (b.top + b.bottom) / 2;
+    let radius = 0; for (const s of this.sheep) radius = Math.max(radius, Math.hypot(s.x - x, s.y - y));
+    return { x, y, radius: radius + 58 * this.scale };
+  }
+  private edgePoint(side: number, along: number, b: Rect) {
+    return side === 0 ? { x: b.left + (b.right - b.left) * along, y: b.top } : side === 1 ? { x: b.right, y: b.top + (b.bottom - b.top) * along } :
+      side === 2 ? { x: b.right - (b.right - b.left) * along, y: b.bottom } : { x: b.left, y: b.bottom - (b.bottom - b.top) * along };
   }
   cast(key: Ability, aim?: { x: number; y: number }) {
-    if (this.paused || this.cooldowns[key] > 0.001) return false;
+    if (this.paused) return false;
     if (!this.dog) this.toggleDog();
-    const dog = this.dog!;
-    this.cooldowns[key] = ABILITIES[key].cooldown;
-    if (key === 'q') this.barks.push({ x: dog.x, y: dog.y, age: 0 });
-    if (key === 'e') {
-      if (dog.arrived && aim) this.sendDog(aim.x, aim.y);
-      dog.sprint = ABILITIES.e.duration;
+    const d = this.dog!; d.idleTime = 0; d.sleeping = false;
+    if (key === 'q') {
+      if (this.barks.length >= 10) this.barks.shift();
+      this.barks.push({ x: d.x, y: d.y, age: 0 }); this.panicX = d.x; this.panicY = d.y; this.panicLeft = 6;
     }
-    if (key === 'w' || key === 'r') {
-      const center = this.flockCenter();
-      dog.anchorX = center.x; dog.anchorY = center.y; dog.orbitRadius = center.radius;
-      dog.orbitAngle = Math.atan2(dog.y - center.y, dog.x - center.x);
-      dog.orbit = key; dog.orbitLeft = ABILITIES[key].duration;
+    if (key === 'e') { if (d.arrived && aim) this.sendDog(aim.x, aim.y); d.sprint = ABILITIES.e.duration; }
+    if (key === 'w') {
+      d.recalling = false; d.recallReady = false; d.atHome = false; d.launching = false;
+      const b = this.orbitOutline();
+      const candidates = [clamp((d.x - b.left) / (b.right - b.left || 1), 0, 1), clamp((d.y - b.top) / (b.bottom - b.top || 1), 0, 1),
+        clamp((b.right - d.x) / (b.right - b.left || 1), 0, 1), clamp((b.bottom - d.y) / (b.bottom - b.top || 1), 0, 1)];
+      let nearest = Infinity;
+      for (let side = 0; side < 4; side++) { const p = this.edgePoint(side, candidates[side], b), dist = Math.hypot(p.x - d.x, p.y - d.y); if (dist < nearest) { nearest = dist; d.orbitSide = side; d.orbitEntry = candidates[side]; } }
+      d.orbit = 'w'; d.orbitEntering = true; d.orbitLeg = 0;
+    }
+    if (key === 'r') {
+      if (d.recallReady) {
+        const p = aim ?? { x: this.width * 0.5, y: this.height * 0.5 };
+        this.sendDog(p.x, p.y); d.launching = true; d.sprint = 0;
+      } else {
+        d.orbit = null; d.sprint = 0; d.launching = false; d.recalling = true; d.recallReady = true; d.atHome = false;
+        d.targetX = this.home.doorX; d.targetY = this.home.doorY; d.arrived = false;
+      }
     }
     return true;
   }
   addFeed(x: number, y: number) {
     if (this.feed.length >= 10) this.feed.shift();
-    const p = this.clampPoint(x, y);
-    this.feed.push({ id: this.nextFeed++, ...p, amount: 2.2, age: 0, seed: this.random() * 10000 });
+    const p = this.clampPoint(x, y); this.feed.push({ id: this.nextFeed++, ...p, amount: 2.2, age: 0, seed: this.random() * 10000 });
   }
   resize(width: number, height: number) {
-    const sx = width / this.width, sy = height / this.height;
-    this.width = width; this.height = height; this.pasture.resize(width, height);
-    for (const s of this.sheep) {
-      const p = this.clampPoint(s.x * sx, s.y * sy), goal = this.clampPoint(s.goalX * sx, s.goalY * sy);
-      s.x = p.x; s.y = p.y; s.goalX = goal.x; s.goalY = goal.y;
-    }
+    const sx = width / this.width, sy = height / this.height; this.width = width; this.height = height; this.pasture.resize(width, height);
+    for (const s of this.sheep) { const p = this.clampPoint(s.x * sx, s.y * sy), goal = this.clampPoint(s.goalX * sx, s.goalY * sy); Object.assign(s, p, { goalX: goal.x, goalY: goal.y }); }
     if (this.dog) {
-      const p = this.clampPoint(this.dog.x * sx, this.dog.y * sy), anchor = this.clampPoint(this.dog.anchorX * sx, this.dog.anchorY * sy);
-      Object.assign(this.dog, p, { targetX: p.x, targetY: p.y, anchorX: anchor.x, anchorY: anchor.y,
-        orbitRadius: clamp(this.dog.orbitRadius * Math.sqrt(sx * sy), 50 * this.scale, this.width * 0.36) });
+      const p = this.dogPoint(this.dog.x * sx, this.dog.y * sy), goal = this.dogPoint(this.dog.targetX * sx, this.dog.targetY * sy);
+      Object.assign(this.dog, p, { targetX: goal.x, targetY: goal.y });
+      if (this.dog.recalling || this.dog.atHome) { this.dog.targetX = this.home.doorX; this.dog.targetY = this.home.doorY; this.dog.recalling = true; this.dog.atHome = false; }
     }
-    for (const f of this.feed) { const p = this.clampPoint(f.x * sx, f.y * sy); Object.assign(f, p); }
+    for (const f of this.feed) Object.assign(f, this.clampPoint(f.x * sx, f.y * sy));
     this.barks.length = 0; this.marker = null;
   }
   private freshGrass(s: Sheep) {
     let score = -Infinity, bestX = s.x, bestY = s.y;
     for (let j = 0; j < 18; j++) {
-      const a = this.random() * TAU, radius = 42 + this.random() * 115;
+      const a = this.random() * TAU, radius = 30 + this.random() * 85;
       const p = this.clampPoint(s.x + Math.cos(a) * radius * this.scale, s.y + Math.sin(a) * radius * this.scale);
-      let quality = this.pasture.at(p.x, p.y) - Math.hypot(p.x - s.x, p.y - s.y) * 0.0008;
-      for (const other of this.sheep) if (other !== s && Math.hypot(other.x - p.x, other.y - p.y) < 45 * this.scale) quality -= 0.24;
-      if (this.dog) quality -= Math.max(0, 150 - Math.hypot(p.x - this.dog.x, p.y - this.dog.y)) * 0.008;
+      let quality = this.pasture.at(p.x, p.y) - Math.hypot(p.x - s.x, p.y - s.y) * 0.001;
+      for (const other of this.sheep) if (other !== s && Math.hypot(other.x - p.x, other.y - p.y) < 60 * this.scale) quality -= 0.35;
+      if (this.dog && !this.dog.atHome && !this.dog.sleeping) quality -= Math.max(0, 135 - Math.hypot(p.x - this.dog.x, p.y - this.dog.y)) * 0.008;
+      if (Math.hypot(p.x - this.home.x, p.y - this.home.y) < 72 * this.scale) quality -= 2;
       if (quality > score) { score = quality; bestX = p.x; bestY = p.y; }
     }
-    s.goalX = bestX; s.goalY = bestY; s.timer = 3 + this.random() * 5; s.state = 'walking';
+    s.goalX = bestX; s.goalY = bestY; s.timer = 10 + this.random() * 8; s.state = 'walking';
+  }
+  private stepDog(dt: number) {
+    const d = this.dog; if (!d) return;
+    d.sprint = Math.max(0, d.sprint - dt);
+    if (d.orbit) {
+      const b = this.orbitOutline(); d.anchorX = (b.left + b.right) / 2; d.anchorY = (b.top + b.bottom) / 2;
+      const entry = this.edgePoint(d.orbitSide, d.orbitEntry, b);
+      let p = d.orbitEntering || d.orbitLeg >= 4 ? entry : this.edgePoint((d.orbitSide + d.orbitLeg) % 4, 1, b);
+      if (Math.hypot(p.x - d.x, p.y - d.y) < 5 * this.scale) {
+        if (d.orbitEntering) d.orbitEntering = false;
+        else d.orbitLeg++;
+        if (d.orbitLeg > 4) { d.orbit = null; p = { x: d.x, y: d.y }; }
+        else p = d.orbitLeg >= 4 ? entry : this.edgePoint((d.orbitSide + d.orbitLeg) % 4, 1, b);
+      }
+      d.targetX = p.x; d.targetY = p.y;
+    }
+    const dx = d.targetX - d.x, dy = d.targetY - d.y, distance = Math.hypot(dx, dy);
+    const max = (d.launching ? SPEEDS.dogRelease : d.sprint > 0 ? SPEEDS.dogSprint : d.orbit ? SPEEDS.dogOrbit : SPEEDS.dogWalk) * this.scale;
+    const speed = Math.min(max, distance * 4);
+    d.vx = distance > 0.6 ? dx / distance * speed : 0; d.vy = distance > 0.6 ? dy / distance * speed : 0;
+    d.x += d.vx * dt; d.y += d.vy * dt; d.arrived = distance < 2;
+    if (speed > 2) d.heading += clamp(angleDelta(d.heading, Math.atan2(d.vy, d.vx)), -dt * 5, dt * 5);
+    if (d.arrived) {
+      if (d.recalling) { d.recalling = false; d.atHome = true; d.x = this.home.doorX; d.y = this.home.doorY; }
+      d.launching = false;
+    }
+    d.idleTime = d.arrived && !d.orbit && d.sprint <= 0 ? d.idleTime + dt : 0;
+    d.sleeping = d.idleTime >= 7;
+    if (speed > 1) this.pasture.tread(d.x, d.y, dt * 0.8, 25 * this.scale);
   }
   step(dt: number) {
     if (this.paused) return;
     dt = Math.min(dt, 1 / 30); this.time += dt; this.pasture.step(dt);
-    for (const key of ['q', 'w', 'e', 'r'] as Ability[]) this.cooldowns[key] = Math.max(0, this.cooldowns[key] - dt);
+    this.panicLeft = Math.max(0, this.panicLeft - dt);
     for (const bark of this.barks) bark.age += dt;
     this.barks = this.barks.filter(b => b.age < ABILITIES.q.duration);
     if (this.marker) { this.marker.age += dt; if (this.marker.age > 1.5) this.marker = null; }
+    this.stepDog(dt);
     const dog = this.dog, scale = this.scale;
-    if (dog) {
-      dog.sprint = Math.max(0, dog.sprint - dt);
-      if (dog.orbit && dog.orbitLeft > 0) {
-        dog.orbitLeft -= dt;
-        if (dog.orbit === 'w') {
-          const center = this.flockCenter();
-          dog.anchorX += (center.x - dog.anchorX) * dt; dog.anchorY += (center.y - dog.anchorY) * dt;
-          dog.orbitRadius += (center.radius - dog.orbitRadius) * dt;
-        }
-        dog.orbitAngle += dt * (dog.orbit === 'r' ? 1.7 : 1.2);
-        const p = this.clampPoint(dog.anchorX + Math.cos(dog.orbitAngle) * dog.orbitRadius, dog.anchorY + Math.sin(dog.orbitAngle) * dog.orbitRadius);
-        dog.targetX = p.x; dog.targetY = p.y;
-        if (dog.orbitLeft <= 0) { dog.orbit = null; dog.targetX = dog.x; dog.targetY = dog.y; }
-      }
-      const dx = dog.targetX - dog.x, dy = dog.targetY - dog.y, d = Math.hypot(dx, dy);
-      const speed = Math.min(dog.sprint > 0 ? 520 : dog.orbit ? 360 : dog.dragging ? 520 : 190, d * 7);
-      const vx = d > 1 ? dx / d * speed : 0, vy = d > 1 ? dy / d * speed : 0;
-      dog.vx = vx; dog.vy = vy; dog.x += vx * dt; dog.y += vy * dt; dog.arrived = d < 3;
-      if (speed > 5) dog.heading += clamp(angleDelta(dog.heading, Math.atan2(vy, vx)), -dt * 9, dt * 9);
-      this.pasture.tread(dog.x, dog.y, dt * 1.8, 28 * scale);
-    }
-    for (const f of this.feed) { f.age += dt; }
-    let index = 0;
-    for (const f of this.feed) if (f.amount > 0.015 && f.age < 80) this.feed[index++] = f;
-    this.feed.length = index;
     for (const s of this.sheep) {
-      s.timer -= dt; s.hunger = Math.min(1, s.hunger + dt * 0.007);
+      s.timer -= dt; s.hunger = Math.min(1, s.hunger + dt * 0.004);
       let desiredX = 0, desiredY = 0, speed = s.speed * scale;
-      const dogDist = dog ? Math.hypot(s.x - dog.x, s.y - dog.y) : Infinity;
-      const alertRadius = (dog && dog.sprint > 0 ? 185 : dog?.dragging ? 175 : 126) * scale * s.courage;
-      let food: Feed | undefined, nearest = 390 * scale;
-      if (dogDist > alertRadius * 0.8) for (const f of this.feed) {
-        const d = Math.hypot(f.x - s.x, f.y - s.y);
-        if (d < nearest && f.amount > 0.015) { food = f; nearest = d; }
+      const dogDist = dog && !dog.atHome && !dog.sleeping ? Math.hypot(s.x - dog.x, s.y - dog.y) : Infinity;
+      const alertRadius = (dog && (dog.sprint > 0 || dog.launching) ? 155 : 110) * scale * s.courage;
+      let food: Feed | undefined, nearest = 380 * scale;
+      if (this.panicLeft <= 0 && dogDist > alertRadius * 0.85) for (const f of this.feed) {
+        const d = Math.hypot(f.x - s.x, f.y - s.y); if (d < nearest && f.amount > 0.015) { food = f; nearest = d; }
       }
-      if (dog && dogDist < alertRadius) {
-        s.state = 'startled'; s.timer = 1.4 + this.random();
-        const dx = s.x - dog.x, dy = s.y - dog.y, d = dogDist || 1;
+      if (this.panicLeft > 0 || dog && dogDist < alertRadius) {
+        s.state = 'startled'; s.timer = 3;
+        const panic = this.panicLeft > 0, ox = panic ? this.panicX : dog!.x, oy = panic ? this.panicY : dog!.y;
+        const dx = s.x - ox, dy = s.y - oy, d = Math.hypot(dx, dy) || 1;
         desiredX = dx / d; desiredY = dy / d;
-        // The dog moves the group, rather than exploding it: nearby sheep share the turn.
-        let centerX = 0, centerY = 0, neighbors = 0;
-        for (const n of this.sheep) if (n !== s && Math.hypot(n.x - s.x, n.y - s.y) < 150 * scale) { centerX += n.x; centerY += n.y; neighbors++; }
-        if (neighbors) { desiredX += (centerX / neighbors - s.x) * 0.004; desiredY += (centerY / neighbors - s.y) * 0.004; }
-        speed = (43 + 46 * (1 - dogDist / alertRadius)) * scale;
+        // Run along boundaries rather than piling every frightened sheep into a corner.
+        const b = this.bounds, edge = 22 * scale;
+        if ((s.x < b.left + edge && desiredX < 0) || (s.x > b.right - edge && desiredX > 0)) { desiredY += (s.y < (b.top + b.bottom) / 2 ? 1 : -1) * 0.8; desiredX *= 0.12; }
+        if ((s.y < b.top + edge && desiredY < 0) || (s.y > b.bottom - edge && desiredY > 0)) { desiredX += (s.x < (b.left + b.right) / 2 ? 1 : -1) * 0.8; desiredY *= 0.12; }
+        speed = panic ? SPEEDS.sheepPanic * scale * (0.78 + s.courage * 0.16) : (17 + 7 * Math.max(0, 1 - dogDist / alertRadius)) * scale;
       } else if (food) {
         s.state = 'following'; s.goalX = food.x; s.goalY = food.y;
-        const eatRadius = 24 * scale;
-        if (nearest < eatRadius) {
-          const amount = Math.min(food.amount, dt * 0.23); food.amount -= amount; s.ate += amount; this.eaten += amount;
+        if (nearest < 32 * scale) {
+          const amount = Math.min(food.amount, dt * 0.085); food.amount -= amount; s.ate += amount; this.eaten += amount;
           s.hunger = Math.max(0, s.hunger - amount * 0.4); speed = 0;
-        } else { desiredX = food.x - s.x; desiredY = food.y - s.y; speed *= 1.28; }
+        } else { desiredX = food.x - s.x; desiredY = food.y - s.y; speed = Math.min(SPEEDS.sheepFood, s.speed * 1.35) * scale; }
       } else {
         if (s.state === 'startled' || s.state === 'following') this.freshGrass(s);
         if (s.state === 'grazing') {
-          const mouthX = s.x + Math.cos(s.heading) * 20 * scale, mouthY = s.y + Math.sin(s.heading) * 20 * scale;
-          const amount = this.pasture.bite(mouthX, mouthY, dt, 22 * scale);
-          s.ate += amount; this.eaten += amount; s.hunger = Math.max(0, s.hunger - dt * 0.025);
-          speed = 0;
-          if (this.pasture.at(mouthX, mouthY) < 0.16 || s.timer < 0) this.freshGrass(s);
+          const mouthX = s.x + Math.cos(s.heading) * 25 * scale, mouthY = s.y + Math.sin(s.heading) * 25 * scale;
+          const amount = this.pasture.bite(mouthX, mouthY, dt, 21 * scale);
+          s.ate += amount; this.eaten += amount; s.hunger = Math.max(0, s.hunger - dt * 0.01); speed = 0;
+          if (this.pasture.at(mouthX, mouthY) < 0.14 || s.timer < 0) this.freshGrass(s);
         }
         if (s.state === 'walking') {
-          const dx = s.goalX - s.x, dy = s.goalY - s.y, distance = Math.hypot(dx, dy);
-          if (distance < 13 * scale || s.timer < 0) { s.state = 'grazing'; s.timer = 3 + this.random() * 8; speed = 0; }
+          const dx = s.goalX - s.x, dy = s.goalY - s.y;
+          if (Math.hypot(dx, dy) < 10 * scale || s.timer < 0) { s.state = 'grazing'; s.timer = 14 + this.random() * 16; speed = 0; }
           else { desiredX = dx; desiredY = dy; }
         }
       }
-      let separateX = 0, separateY = 0;
-      const spacing = 48 * scale;
+      const length = Math.hypot(desiredX, desiredY) || 1; desiredX = desiredX / length * speed; desiredY = desiredY / length * speed;
       for (const other of this.sheep) {
         if (other === s) continue;
-        const dx = s.x - other.x, dy = s.y - other.y, d = Math.hypot(dx, dy);
-        if (d < spacing) { const k = (1 - d / spacing); separateX += (d < 0.001 ? (s.id < other.id ? -1 : 1) : dx / d) * k; separateY += (d < 0.001 ? 0.3 : dy / d) * k; }
+        const dx = s.x - other.x, dy = s.y - other.y, d = Math.hypot(dx, dy), spacing = 64 * scale * (s.size + other.size) * 0.5;
+        if (d < spacing) { const k = (1 - d / spacing) ** 2 * 30 * scale; desiredX += (d < 0.001 ? s.id < other.id ? -1 : 1 : dx / d) * k; desiredY += (d < 0.001 ? 0.3 : dy / d) * k; }
       }
-      const len = Math.hypot(desiredX, desiredY) || 1;
-      desiredX = desiredX / len * speed + separateX * 42 * scale;
-      desiredY = desiredY / len * speed + separateY * 42 * scale;
-      for (const bark of this.barks) {
-        const dx = s.x - bark.x, dy = s.y - bark.y, d = Math.hypot(dx, dy) || 1;
-        const off = Math.abs(d - bark.age * 215 * scale);
-        if (off < 36 * scale) { const force = (1 - off / (36 * scale)) * 110 * scale * (1 - bark.age / 1.3); desiredX += dx / d * force; desiredY += dy / d * force; s.state = 'startled'; }
-      }
-      if (dog?.orbit) {
-        const dx = dog.anchorX - s.x, dy = dog.anchorY - s.y, d = Math.hypot(dx, dy) || 1;
-        const targetRadius = dog.orbit === 'r' ? 70 * scale : 105 * scale;
-        const gather = clamp((d - targetRadius) * (dog.orbit === 'r' ? 0.8 : 0.45), 0, 65 * scale);
-        desiredX += dx / d * gather; desiredY += dy / d * gather;
-        if (gather > 6) s.state = 'walking';
-      }
-      // Keep calm grazers calmly still unless another sheep is actually overlapping.
-      const blend = 1 - Math.exp(-dt * (s.state === 'startled' ? 5 : 3));
+      const hx = s.x - this.home.x, hy = s.y - this.home.y, hd = Math.hypot(hx, hy) || 1;
+      if (hd < 70 * scale) { desiredX += hx / hd * 25 * scale; desiredY += hy / hd * 25 * scale; }
+      const cap = (this.panicLeft > 0 ? SPEEDS.sheepPanic : s.state === 'startled' ? SPEEDS.sheepChased : s.state === 'following' ? SPEEDS.sheepFood : SPEEDS.sheepWalk + 2) * scale;
+      const desiredSpeed = Math.hypot(desiredX, desiredY);
+      if (desiredSpeed > cap) { desiredX *= cap / desiredSpeed; desiredY *= cap / desiredSpeed; }
+      const blend = 1 - Math.exp(-dt * (s.state === 'startled' ? 3.5 : 2));
       s.vx += (desiredX - s.vx) * blend; s.vy += (desiredY - s.vy) * blend;
-      const v = Math.hypot(s.vx, s.vy), max = 105 * scale;
-      if (v > max) { s.vx *= max / v; s.vy *= max / v; }
-      const p = this.clampPoint(s.x + s.vx * dt, s.y + s.vy * dt);
-      if (p.x === s.x && Math.abs(s.vx) > 3) { s.vx *= -0.4; s.timer = 0; }
-      if (p.y === s.y && Math.abs(s.vy) > 3) { s.vy *= -0.4; s.timer = 0; }
-      s.x = p.x; s.y = p.y;
-      if (v > 3) s.heading += clamp(angleDelta(s.heading, Math.atan2(s.vy, s.vx)), -dt * 2.6, dt * 2.6);
-      this.pasture.tread(s.x, s.y, dt * (v > 4 ? 0.65 : 0.1), 20 * scale);
+      const v = Math.hypot(s.vx, s.vy);
+      if (v > cap) { s.vx *= cap / v; s.vy *= cap / v; }
+      Object.assign(s, this.clampPoint(s.x + s.vx * dt, s.y + s.vy * dt));
+      if (v > 2) s.heading += clamp(angleDelta(s.heading, Math.atan2(s.vy, s.vx)), -dt * 1.7, dt * 1.7);
+      this.pasture.tread(s.x, s.y, dt * (v > 3 ? 0.32 : 0.04), 19 * scale);
+    }
+    this.resolveOverlaps(dt);
+    for (const f of this.feed) f.age += dt;
+    this.feed = this.feed.filter(f => f.amount > 0.015 && f.age < 120);
+  }
+  /** A soft spacing zone plus positional relaxation leaves only a little wool overlap. */
+  private resolveOverlaps(dt: number) {
+    const cap = 0.85 * this.scale * dt * 60;
+    for (let pass = 0; pass < 2; pass++) for (let i = 0; i < this.sheep.length; i++) for (let j = i + 1; j < this.sheep.length; j++) {
+      const a = this.sheep[i], b = this.sheep[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
+      const min = 43 * this.scale * (a.size + b.size) * 0.5;
+      if (d >= min) continue;
+      const angle = hash3(a.id, b.id, 33) * TAU, nx = d < 0.001 ? Math.cos(angle) : dx / d, ny = d < 0.001 ? Math.sin(angle) : dy / d;
+      const push = Math.min(cap, (min - d) * 0.32);
+      Object.assign(a, this.clampPoint(a.x - nx * push, a.y - ny * push)); Object.assign(b, this.clampPoint(b.x + nx * push, b.y + ny * push));
     }
   }
 }

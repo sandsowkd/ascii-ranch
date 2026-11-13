@@ -4,7 +4,7 @@ import type { Sheep, World } from '../simulation/World';
 /** Pond's glyph tiles, local ink and cached font, adapted into a living pasture.
  * Math helpers and tile treatment derive from stqfdyr/ascii-pond (MIT).
  * Copyright (c) 2026 stqfdyr; public/licenses/ascii-pond-MIT.txt. */
-const GLYPHS = ".,:;'`|/\\v!+*ox@O%#8-=~^<>()[]";
+const GLYPHS = ".,:;'`|/\\v!+*ox@O%#8-=~^<>()[]zZ";
 export const BG = '#171e19';
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
@@ -12,6 +12,7 @@ export class Renderer {
   private dpr = 1; private aw = 8; private ah = 10;
   private codes = new Uint8Array(0); private levels = new Uint8Array(0); private family = new Uint8Array(0);
   private tiles = new Uint8Array(0); private tileLevel = new Uint8Array(0);
+  private priority = new Uint8Array(0);
   private texture = new Float32Array(0); private atlasCols = GLYPHS.length;
   private tileColors: string[][] = [];
   constructor(public canvas: HTMLCanvasElement, public world: World) { this.ctx = canvas.getContext('2d', { alpha: false })!; this.resize(); }
@@ -22,6 +23,7 @@ export class Renderer {
     const n = p.cols * p.rows;
     this.codes = new Uint8Array(n); this.levels = new Uint8Array(n); this.family = new Uint8Array(n);
     this.tiles = new Uint8Array(n); this.tileLevel = new Uint8Array(n); this.texture = new Float32Array(n);
+    this.priority = new Uint8Array(n);
     for (let i = 0; i < n; i++) this.texture[i] = hash3(i % p.cols, Math.floor(i / p.cols), 39);
     this.buildAtlas();
   }
@@ -29,24 +31,26 @@ export class Renderer {
   private buildAtlas() {
     const { cellW, cellH } = this.world.pasture;
     this.aw = Math.ceil(cellW * this.dpr); this.ah = Math.ceil(cellH * this.dpr);
-    this.atlas.width = this.aw * this.atlasCols; this.atlas.height = this.ah * 32 * 6;
+    this.atlas.width = this.aw * this.atlasCols; this.atlas.height = this.ah * 32 * 8;
     const ctx = this.atlas.getContext('2d')!;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `400 ${Math.round(cellH * 0.82 * this.dpr)}px "Geist Mono", monospace`;
-    const lows = [[35, 47, 35], [42, 45, 34], [66, 71, 57], [114, 120, 97], [65, 61, 45], [69, 69, 51]];
-    const highs = [[111, 137, 79], [117, 104, 68], [139, 142, 117], [236, 234, 209], [201, 163, 108], [209, 192, 123]];
-    for (let family = 0; family < 6; family++) for (let level = 0; level < 32; level++) {
+    const lows = [[37, 57, 34], [52, 43, 29], [66, 71, 57], [114, 120, 97], [65, 61, 45], [69, 69, 51], [65, 39, 30], [82, 70, 45]];
+    const highs = [[147, 177, 97], [130, 103, 65], [139, 142, 117], [236, 234, 209], [201, 163, 108], [209, 192, 123], [192, 126, 82], [220, 197, 138]];
+    for (let family = 0; family < 8; family++) for (let level = 0; level < 32; level++) {
       const t = level / 31, lo = lows[family], hi = highs[family];
       ctx.fillStyle = `rgb(${Math.round(lo[0] + (hi[0] - lo[0]) * t)},${Math.round(lo[1] + (hi[1] - lo[1]) * t)},${Math.round(lo[2] + (hi[2] - lo[2]) * t)})`;
       for (let g = 0; g < GLYPHS.length; g++) ctx.fillText(GLYPHS[g], g * this.aw + this.aw / 2, (family * 32 + level) * this.ah + this.ah / 2 + this.dpr * 0.35);
     }
-    const tileLo = [[23, 30, 25], [92, 99, 80], [24, 29, 24], [57, 55, 40], [31, 38, 27]];
-    const tileHi = [[28, 34, 27], [226, 226, 203], [57, 65, 48], [139, 113, 76], [77, 87, 54]];
+    const tileLo = [[23, 30, 25], [92, 99, 80], [24, 29, 24], [57, 55, 40], [31, 38, 27], [24, 33, 24], [29, 29, 22], [63, 40, 30], [72, 65, 44]];
+    const tileHi = [[28, 34, 27], [226, 226, 203], [57, 65, 48], [139, 113, 76], [77, 87, 54], [35, 49, 29], [51, 42, 28], [134, 78, 51], [157, 139, 95]];
     this.tileColors = tileLo.map((lo, j) => Array.from({ length: 32 }, (_, i) => `rgb(${lo.map((v, k) => Math.round(v + (tileHi[j][k] - v) * i / 31)).join(',')})`));
   }
-  private put(x: number, y: number, glyph: string, level: number, family: number, tile = 0, tileLevel = 0) {
+  private put(x: number, y: number, glyph: string, level: number, family: number, tile = 0, tileLevel = 0, priority = 0) {
     const p = this.world.pasture, c = Math.floor(x / p.cellW), r = Math.floor(y / p.cellH);
     if (c < 0 || c >= p.cols || r < 0 || r >= p.rows) return;
     const i = r * p.cols + c;
+    if (priority < this.priority[i]) return;
+    this.priority[i] = priority;
     this.codes[i] = Math.max(0, GLYPHS.indexOf(glyph)); this.levels[i] = clamp(Math.round(level * 31), 0, 31);
     this.family[i] = family; this.tiles[i] = tile; this.tileLevel[i] = clamp(Math.round(tileLevel * 31), 0, 31);
   }
@@ -57,12 +61,16 @@ export class Renderer {
       if (((px - x) / rx) ** 2 + ((py - y) / ry) ** 2 < 1) this.put(px, py, '.', 0.05, 0, 3, 0);
     }
   }
-  private sheep(s: Sheep) {
+  cellAt(x: number, y: number) {
+    const i = this.world.pasture.index(x, y);
+    return { glyph: GLYPHS[this.codes[i]], priority: this.priority[i], tile: this.tiles[i], family: this.family[i], level: this.levels[i] };
+  }
+  private sheep(s: Sheep, headsOnly = false) {
     const w = this.world, p = w.pasture, scale = w.scale * s.size;
     const heading = s.heading + (s.state === 'grazing' ? Math.sin(w.time * 2 + s.phase) * 0.06 : 0);
     const dx = Math.cos(heading), dy = Math.sin(heading), sx = -dy, sy = dx;
     const rx = 25.5 * scale, ry = 17.5 * scale, stride = Math.hypot(s.vx, s.vy) > 4 ? Math.sin(w.time * 11 + s.phase) * 4 : 0;
-    this.shadow(s.x + 4, s.y + 7, rx + 8, ry + 5);
+    if (!headsOnly) {
     for (const front of [-1, 1]) for (const side of [-1, 1]) {
       const f = front * rx * 0.52 + stride * front * side, lateral = side * (ry + 3);
       this.put(s.x + dx * f + sx * lateral, s.y + dy * f + sy * lateral, lineGlyph(dx + sx * 0.5, dy + sy * 0.5), 0.45, 2, 3, 0.14);
@@ -79,17 +87,24 @@ export class Renderer {
       this.put(x, y, glyph, 0.18 + texture * 0.16, 2, 2, shade);
     }
     this.put(s.x - dx * (rx + 3), s.y - dy * (rx + 3), ',', 0.8, 3);
+    return;
+    }
     const nibble = s.state === 'grazing' || s.state === 'following' && Math.hypot(s.vx, s.vy) < 3 ? Math.sin(w.time * 5 + s.phase) * 2.5 : 0;
     const hx = s.x + dx * (rx + 4 + nibble), hy = s.y + dy * (rx + 4 + nibble);
-    for (const side of [-1, 1]) this.put(hx + sx * side * 11 * scale - dx * 3, hy + sy * side * 11 * scale - dy * 3, side === 1 ? '\\' : '/', 0.64, 2, 3, 0.48);
+    for (const side of [-1, 1]) this.put(hx + sx * side * 11 * scale - dx * 3, hy + sy * side * 11 * scale - dy * 3, side === 1 ? '\\' : '/', 0.64, 2, 3, 0.48, 2);
     for (const front of [-0.4, 0.5]) for (const side of [-0.45, 0.45]) {
       const px = hx + dx * front * 11 * scale + sx * side * 12 * scale, py = hy + dy * front * 11 * scale + sy * side * 12 * scale;
-      this.put(px, py, front < 0 ? 'o' : '.', front < 0 ? 0.8 : 0.45, 3, 3, 0.6);
+      this.put(px, py, front < 0 ? 'o' : '.', front < 0 ? 0.8 : 0.45, 3, 3, 0.6, 2);
     }
   }
   private dog() {
     const w = this.world, d = w.dog;
     if (!d) return;
+    if (d.atHome) {
+      this.put(w.home.doorX - 4, w.home.doorY - 5, 'o', 0.8, 3, 3, 0.4);
+      this.put(w.home.doorX + 4, w.home.doorY - 5, 'o', 0.8, 3, 3, 0.4);
+      return;
+    }
     const p = w.pasture, scale = w.scale, dx = Math.cos(d.heading), dy = Math.sin(d.heading), sx = -dy, sy = dx;
     const rx = 22 * scale, ry = 11.5 * scale, speed = Math.hypot(d.vx, d.vy);
     this.shadow(d.x + 4, d.y + 6, rx + 9, ry + 7);
@@ -108,7 +123,8 @@ export class Renderer {
     const hx = d.x + dx * (rx + 2), hy = d.y + dy * (rx + 2);
     for (const side of [-1, 1]) this.put(hx + sx * side * 7 - dx * 4, hy + sy * side * 7 - dy * 4, '^', 0.55, 4, 4, 0.55);
     this.put(hx, hy, 'o', 0.85, 3, 4, 0.85);
-    this.put(hx + dx * 8, hy + dy * 8, '>', 0.75, 4, 4, 0.65);
+    const nose = Math.abs(dx) > Math.abs(dy) ? dx > 0 ? '>' : '<' : dy > 0 ? 'v' : '^';
+    this.put(hx + dx * 8, hy + dy * 8, nose, 0.75, 4, 4, 0.65);
     // An unobtrusive copper selection mark makes the dog easy to pick out.
     this.put(d.x - 10, d.y - 25 * scale, '[', 0.5, 4);
     this.put(d.x + 10, d.y - 25 * scale, ']', 0.5, 4);
@@ -123,24 +139,50 @@ export class Renderer {
       }
     }
   }
+  private doghouse() {
+    const w = this.world, p = w.pasture, h = w.home;
+    const rows = ['    ^    ', '   /#\\   ', '  /###\\  ', ' /#####\\ ', ' |#|#|#| ', ' |##^##| ', ' |#|.|#| ', ' +-----+ '];
+    const ox = h.x - 4 * p.cellW, oy = h.y - 3 * p.cellH;
+    this.shadow(h.x + 6, h.y + 26, p.cellW * 4.2, p.cellH * 1.5);
+    for (let r = 0; r < rows.length; r++) for (let c = 0; c < rows[r].length; c++) {
+      const ch = rows[r][c]; if (ch === ' ') continue;
+      const roof = r < 4, door = r >= 5 && c >= 3 && c <= 5;
+      this.put(ox + c * p.cellW, oy + r * p.cellH, ch, roof ? 0.5 : 0.58, roof ? 6 : 7, door ? 3 : roof ? 8 : 9, door ? 0.12 : roof ? 0.72 - r * 0.06 : 0.64);
+    }
+  }
+  private sleep() {
+    const w = this.world, d = w.dog; if (!d?.sleeping) return;
+    const x = d.atHome ? w.home.x + 24 * w.scale : d.x + 16 * w.scale;
+    const y = d.atHome ? w.home.y - 30 * w.scale : d.y - 25 * w.scale;
+    for (let j = 0; j < 3; j++) {
+      const phase = (w.time * 0.32 + j / 3) % 1;
+      this.put(x + phase * 18, y - phase * 32 * w.scale, j === 2 ? 'Z' : 'z', (1 - phase) * 0.7, 3);
+    }
+  }
   render() {
     const w = this.world, p = w.pasture, { cellW: cw, cellH: ch, cols, rows } = p, ctx = this.ctx;
-    this.tiles.fill(0);
+    this.tiles.fill(0); this.priority.fill(0);
     for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
       const i = r * cols + c, grass = p.grass[i], texture = this.texture[i];
       const wind = Math.sin(c * 0.07 + r * 0.047 - w.time * 0.45) * 0.55 + Math.sin(r * 0.13 - w.time * 0.28) * 0.3;
-      let glyph = grass < 0.15 ? '.' : grass < 0.32 ? texture > 0.55 ? ',' : "'" : grass < 0.59 ? texture > 0.5 ? "'" : ';' : texture < 0.25 ? "'" : texture < 0.48 ? ',' : texture < 0.72 ? '|' : wind > 0.38 ? '/' : wind < -0.38 ? '\\' : 'v';
+      const remaining = clamp(grass / Math.max(0.1, p.capacity[i]), 0, 1);
+      const bare = remaining < 0.28 || p.capacity[i] < 0.27;
+      let glyph = bare ? texture > 0.6 ? ':' : '.' : remaining < 0.65 ? texture > 0.55 ? ',' : "'" : grass < 0.59 ? texture > 0.5 ? "'" : ';' : texture < 0.25 ? "'" : texture < 0.48 ? ',' : texture < 0.72 ? '|' : wind > 0.38 ? '/' : wind < -0.38 ? '\\' : 'v';
       if (p.trampled[i] > 0.3) glyph = texture > 0.5 ? '-' : ',';
       const richness = clamp((grass - 0.3) / 0.7, 0, 1);
-      let level = 0.12 + richness * 0.27 + texture * 0.15 + wind * 0.018;
-      let family = p.soil[i] > 0.44 || grass < 0.2 ? 1 : 0;
-      if (p.flower[i] >= 0 && grass > 0.5) { glyph = p.flower[i] > 0.5 ? '*' : '+'; family = p.flower[i] > 0.7 ? 3 : 5; level = 0.45 + texture * 0.25; }
+      let level = bare ? 0.22 + texture * 0.12 : 0.16 + richness * 0.33 + texture * 0.13 + wind * 0.018;
+      let family = bare || p.soil[i] > 0.52 ? 1 : 0;
+      if (p.flower[i] >= 0 && grass > 0.5 && remaining > 0.8) { glyph = p.flower[i] > 0.5 ? '*' : '+'; family = p.flower[i] > 0.7 ? 3 : 5; level = 0.45 + texture * 0.25; }
       const edge = Math.min(c * cw, w.width - c * cw, r * ch, w.height - r * ch);
       // Dense meadow at the edges, quiet breathing room for the controls.
       const uiDim = Math.min(r * ch / 100, (w.height - r * ch) / 125, 1);
       level *= 0.48 + 0.52 * clamp(uiDim, 0, 1);
       if (edge < 21 && grass > 0.62) level += 0.06;
       this.codes[i] = GLYPHS.indexOf(glyph); this.levels[i] = clamp(Math.round(level * 31), 0, 31); this.family[i] = family;
+      if (uiDim > 0.45) {
+        this.tiles[i] = bare || remaining < 0.6 ? 7 : 6;
+        this.tileLevel[i] = Math.round(bare ? 20 + texture * 7 : remaining < 0.6 ? (1 - remaining) * 21 : richness * 11);
+      }
     }
     // Feed grains are fixed to their handful, rather than flickering every frame.
     for (const f of w.feed) {
@@ -157,11 +199,15 @@ export class Renderer {
     }
     for (const bark of w.barks) for (let ring = 0; ring < 2; ring++) {
       const age = bark.age - ring * 0.12;
-      if (age > 0) this.ring(bark.x, bark.y, age * 215 * w.scale, (1 - bark.age / 1.3) * (ring ? 0.4 : 0.8), 5);
+      if (age > 0) this.ring(bark.x, bark.y, age * 440 * w.scale, (1 - bark.age / 2.4) * (ring ? 0.4 : 0.8), 5);
     }
-    if (w.dog?.orbit === 'r') this.ring(w.dog.anchorX, w.dog.anchorY, Math.min(130 * w.scale, w.dog.orbitRadius * 0.8), 0.26 + Math.sin(w.time * 2) * 0.06, 0);
+    this.doghouse();
+    for (const s of w.sheep) this.shadow(s.x + 4, s.y + 7, 25.5 * w.scale * s.size + 8, 17.5 * w.scale * s.size + 5);
     for (const s of w.sheep) this.sheep(s);
     this.dog();
+    // Faces and ears always survive another animal's wool or shadow.
+    for (const s of w.sheep) this.sheep(s, true);
+    this.sleep();
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); ctx.fillStyle = BG; ctx.fillRect(0, 0, w.width, w.height); ctx.imageSmoothingEnabled = false;
     for (let i = 0; i < this.codes.length; i++) {
       const x = i % cols * cw, y = Math.floor(i / cols) * ch;

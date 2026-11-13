@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { World } from '../src/simulation/World';
+import { World, SPEEDS } from '../src/simulation/World';
 import { Pasture } from '../src/simulation/Pasture';
 
 function advance(world: World, seconds: number) { for (let i = 0; i < seconds * 60; i++) world.step(1 / 60); }
@@ -8,18 +8,18 @@ describe('the living pasture', () => {
     const p = new Pasture(900, 700), near = p.index(400, 300), far = p.index(80, 80);
     const initial = p.grass[near], untouched = p.grass[far];
     expect(p.bite(400, 300, 1, 25)).toBeGreaterThan(0);
-    expect(p.grass[near]).toBeLessThan(initial); expect(p.grass[far]).toBe(untouched);
+    expect(p.grass[near]).toBeLessThan(initial); expect(initial - p.grass[near]).toBeLessThanOrEqual(0.055); expect(p.grass[far]).toBe(untouched);
   });
   it('regrows eaten grass and recovers flattened blades', () => {
     const p = new Pasture(900, 700), i = p.index(400, 300);
     p.grass[i] = 0; p.tread(400, 300, 1); const tread = p.trampled[i];
-    for (let k = 0; k < 600; k++) p.step(0.1);
+    for (let k = 0; k < 1200; k++) p.step(0.1);
     expect(p.grass[i]).toBeGreaterThan(0.3); expect(p.grass[i]).toBeLessThanOrEqual(p.capacity[i]);
     expect(p.trampled[i]).toBeLessThan(tread * 0.01);
   });
   it('grazers consume actual grass and move to new patches', () => {
     const w = new World(900, 700, 1), s = w.sheep[0], before = { x: s.x, y: s.y };
-    advance(w, 20); expect(s.ate).toBeGreaterThan(0); expect(w.eaten).toBeGreaterThan(0);
+    advance(w, 40); expect(s.ate).toBeGreaterThan(0); expect(w.eaten).toBeGreaterThan(0);
     expect(Math.hypot(s.x - before.x, s.y - before.y)).toBeGreaterThan(15);
   });
   it('bare grass makes sheep seek a fresh patch immediately', () => {
@@ -33,47 +33,88 @@ describe('the living pasture', () => {
   });
   it('caps feed deposits and clears stale food', () => {
     const w = new World(900, 700, 0); for (let i = 0; i < 20; i++) w.addFeed(450, 300);
-    expect(w.feed.length).toBe(10); advance(w, 81); expect(w.feed.length).toBe(0);
+    expect(w.feed.length).toBe(10); advance(w, 121); expect(w.feed.length).toBe(0);
   });
 });
 describe('a controllable sheepdog', () => {
   it('moves to the command with bounded speed and arrives smoothly', () => {
     const w = new World(1200, 800, 0); w.sendDog(250, 250);
     const start = { x: w.dog!.x, y: w.dog!.y }; w.step(1 / 60);
-    expect(Math.hypot(w.dog!.x - start.x, w.dog!.y - start.y)).toBeLessThanOrEqual(190 / 60 + 0.001);
+    expect(Math.hypot(w.dog!.x - start.x, w.dog!.y - start.y)).toBeLessThanOrEqual(SPEEDS.dogWalk / 60 + 0.001);
     advance(w, 6); expect(Math.hypot(w.dog!.x - 250, w.dog!.y - 250)).toBeLessThan(2);
   });
   it('nearby sheep move away from the dog', () => {
     const w = new World(900, 700, 1), s = w.sheep[0]; s.x = 500; s.y = 300;
     w.toggleDog(); Object.assign(w.dog!, { x: 420, y: 300, targetX: 420, targetY: 300 });
-    advance(w, 0.5); expect(s.x).toBeGreaterThan(510); expect(s.state).toBe('startled');
+    advance(w, 0.5); expect(s.x).toBeGreaterThan(504); expect(s.state).toBe('startled');
   });
   it('bark releases a traveling pulse that adds an outward push', () => {
     const make = () => { const w = new World(900, 700, 1); w.sheep[0].x = 570; w.sheep[0].y = 300; w.toggleDog(); Object.assign(w.dog!, { x: 400, y: 300, targetX: 400, targetY: 300 }); return w; };
     const bark = make(), calm = make(); bark.cast('q'); advance(bark, 0.8); advance(calm, 0.8);
     expect(bark.sheep[0].vx).toBeGreaterThan(calm.sheep[0].vx + 2); expect(bark.sheep[0].x).toBeGreaterThan(calm.sheep[0].x);
   });
-  it('prevents repeated casts until the cooldown expires', () => {
-    const w = new World(900, 700, 0); expect(w.cast('q')).toBe(true); expect(w.cast('q')).toBe(false);
-    expect(w.barks.length).toBe(1); advance(w, 3); expect(w.cast('q')).toBe(true);
+  it('allows every action to be cast again immediately, without cooldowns', () => {
+    const w = new World(900, 700, 0);
+    for (const key of ['q', 'w', 'e', 'r'] as const) { expect(w.cast(key)).toBe(true); expect(w.cast(key)).toBe(true); }
+    expect(w.barks.length).toBe(2);
   });
   it('sprint travels farther than ordinary movement without teleporting', () => {
     const a = new World(1600, 1000, 0), b = new World(1600, 1000, 0);
-    a.sendDog(100, 150); b.sendDog(100, 150); a.cast('e');
+    a.sendDog(1500, 750); b.sendDog(1500, 750); a.cast('e');
     advance(a, 0.5); advance(b, 0.5);
-    expect(Math.hypot(a.dog!.x - 100, a.dog!.y - 150)).toBeLessThan(Math.hypot(b.dog!.x - 100, b.dog!.y - 150) - 100);
+    expect(Math.hypot(a.dog!.x - 1500, a.dog!.y - 750)).toBeLessThan(Math.hypot(b.dog!.x - 1500, b.dog!.y - 750) - 45);
   });
-  it('come by circles the flock, and a move command cancels the orbit', () => {
-    const w = new World(1200, 900, 18); w.cast('w'); const angle = w.dog!.orbitAngle;
-    advance(w, 1); expect(w.dog!.orbitAngle).toBeGreaterThan(angle); expect(w.dog!.orbit).toBe('w');
-    w.sendDog(100, 150); expect(w.dog!.orbit).toBeNull();
+  it('W encloses sheep on every pasture edge and follows a complete outside lap', () => {
+    const w = new World(1200, 900, 4), b = w.bounds;
+    const poses = [{ x: b.left, y: b.top }, { x: b.right, y: b.top }, { x: b.right, y: b.bottom }, { x: b.left, y: b.bottom }];
+    w.sheep.forEach((s, i) => Object.assign(s, poses[i], { timer: 10000 }));
+    const outline = w.orbitOutline();
+    expect(outline.left).toBeLessThan(b.left - 40); expect(outline.right).toBeGreaterThan(b.right + 40);
+    expect(outline.top).toBeLessThan(b.top - 40); expect(outline.bottom).toBeGreaterThan(b.bottom + 40);
+    w.cast('w'); const visited = new Set<string>();
+    for (let frame = 0; frame < 5000 && w.dog!.orbit; frame++) {
+      w.step(1 / 60); const d = w.dog!;
+      if (!d.orbitEntering) expect(d.x < b.left || d.x > b.right || d.y < b.top || d.y > b.bottom).toBe(true);
+      if (Math.abs(d.x - outline.left) < 10) visited.add('left'); if (Math.abs(d.x - outline.right) < 10) visited.add('right');
+      if (Math.abs(d.y - outline.top) < 10) visited.add('top'); if (Math.abs(d.y - outline.bottom) < 10) visited.add('bottom');
+      w.sheep.forEach((s, i) => Object.assign(s, poses[i], { vx: 0, vy: 0, timer: 10000 }));
+    }
+    expect(visited.size).toBe(4); expect(w.dog!.orbit).toBeNull();
+    w.cast('w'); w.sendDog(100, 150); expect(w.dog!.orbit).toBeNull();
   });
-  it('hold flock gathers distant sheep and ends after six seconds', () => {
-    const w = new World(1400, 900, 8); w.cast('r');
-    const center = { x: w.dog!.anchorX, y: w.dog!.anchorY };
-    const spread = () => w.sheep.reduce((n, s) => n + Math.hypot(s.x - center.x, s.y - center.y), 0) / w.sheep.length;
-    const before = spread(); advance(w, 5.5); expect(spread()).toBeLessThan(before * 0.85);
-    advance(w, 0.6); expect(w.dog!.orbit).toBeNull();
+  it('R recalls to the doghouse, then sprints to the cursor with no click', () => {
+    const w = new World(1200, 900, 0); w.sendDog(700, 400); advance(w, 3);
+    w.cast('r'); expect(w.dog!.recalling).toBe(true); expect(w.dog!.targetX).toBe(w.home.doorX);
+    advance(w, 12); expect(w.dog!.atHome).toBe(true); expect(w.dog!.x).toBeCloseTo(w.home.doorX);
+    w.cast('r', { x: 900, y: 500 }); expect(w.dog!.launching).toBe(true); expect(w.dog!.targetX).toBe(900);
+    w.step(1 / 60); expect(Math.hypot(w.dog!.vx, w.dog!.vy)).toBeGreaterThan(SPEEDS.dogWalk * 2);
+    expect(w.dog!.recallReady).toBe(false);
+  });
+  it('an idle dog sleeps after seven seconds and wakes on a command or ability', () => {
+    const w = new World(900, 700, 0); w.toggleDog(); advance(w, 7.2); expect(w.dog!.sleeping).toBe(true);
+    w.cast('q'); expect(w.dog!.sleeping).toBe(false);
+    advance(w, 7.2); expect(w.dog!.sleeping).toBe(true);
+    w.sendDog(600, 300); expect(w.dog!.sleeping).toBe(false);
+  });
+  it('Q scares even distant sheep into a sustained six-second escape', () => {
+    const w = new World(1800, 1000, 2); w.toggleDog();
+    Object.assign(w.sheep[0], { x: 850, y: 450 }); Object.assign(w.sheep[1], { x: 1300, y: 600 });
+    const positions = w.sheep.map(s => ({ x: s.x, y: s.y })); w.cast('q'); advance(w, 4);
+    expect(w.sheep.every(s => s.state === 'startled')).toBe(true);
+    w.sheep.forEach((s, i) => expect(Math.hypot(s.x - positions[i].x, s.y - positions[i].y)).toBeGreaterThan(150));
+    advance(w, 2.2); expect(w.panicLeft).toBe(0);
+  });
+  it('normal walking and food-following remain much slower than a bark escape', () => {
+    const w = new World(1200, 900, 1), s = w.sheep[0];
+    Object.assign(s, { x: 400, y: 400, state: 'walking', goalX: 900, goalY: 400, timer: 100 }); advance(w, 2);
+    const walking = Math.hypot(s.vx, s.vy); expect(walking).toBeLessThanOrEqual(15); expect(walking).toBeGreaterThan(5);
+    w.addFeed(650, 400); advance(w, 2); const food = Math.hypot(s.vx, s.vy);
+    expect(food).toBeGreaterThan(walking); expect(food).toBeLessThanOrEqual(20);
+  });
+  it('soft collision correction separates coincident sheep while allowing some wool overlap', () => {
+    const w = new World(1200, 900, 2); w.sheep.forEach(s => Object.assign(s, { x: 500, y: 350, timer: 100, size: 1 }));
+    advance(w, 2); const [a, b] = w.sheep;
+    expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThan(42);
   });
 });
 describe('stable state and controls', () => {
@@ -83,16 +124,16 @@ describe('stable state and controls', () => {
     for (let i = 0; i < 80; i++) w.removeSheep(); expect(w.sheep.length).toBe(0); w.cast('r'); advance(w, 1);
     expect(Number.isFinite(w.dog!.x)).toBe(true);
   });
-  it('does not advance paused sheep, grass, abilities or cooldowns', () => {
-    const w = new World(900, 700, 18); w.cast('q'); const s = { ...w.sheep[0] }, cooldown = w.cooldowns.q;
-    w.paused = true; advance(w, 5); expect(w.sheep[0]).toEqual(s); expect(w.time).toBe(0); expect(w.cooldowns.q).toBe(cooldown); expect(w.cast('e')).toBe(false);
+  it('does not advance paused sheep, grass or active actions', () => {
+    const w = new World(900, 700, 18); w.cast('q'); const s = { ...w.sheep[0] }, panic = w.panicLeft;
+    w.paused = true; advance(w, 5); expect(w.sheep[0]).toEqual(s); expect(w.time).toBe(0); expect(w.panicLeft).toBe(panic); expect(w.cast('e')).toBe(false);
   });
   it('resizes creatures and keeps the whole grid filled', () => {
-    const w = new World(1200, 900, 18); w.cast('r'); w.addFeed(500, 300); w.resize(412, 839);
+    const w = new World(1200, 900, 18); w.cast('w'); w.addFeed(500, 300); w.resize(412, 839);
     expect(w.sheep.length).toBe(18); expect(w.pasture.cols * w.pasture.cellW).toBeGreaterThanOrEqual(412); expect(w.pasture.rows * w.pasture.cellH).toBeGreaterThanOrEqual(839);
     expect(w.sheep.every(s => s.x > 0 && s.x < 412 && s.y > 0 && s.y < 839)).toBe(true);
-    expect(w.dog!.anchorX).toBeGreaterThan(0); expect(w.dog!.anchorX).toBeLessThan(412);
-    advance(w, 1); expect(w.dog!.targetX).toBeLessThanOrEqual(w.bounds.right);
+    expect(w.orbitOutline().right).toBeLessThan(412);
+    advance(w, 1); expect(w.dog!.targetX).toBeLessThanOrEqual(w.dogBounds.right);
   });
   it('stays finite and bounded during a minute of grazing, feeding and herding', () => {
     const w = new World(1100, 800, 36); w.toggleDog();
@@ -101,7 +142,7 @@ describe('stable state and controls', () => {
       if (frame % 600 === 0) w.cast('w');
       w.step(1 / 60);
     }
-    for (const s of w.sheep) { expect(Number.isFinite(s.x + s.y + s.vx + s.vy)).toBe(true); expect(Math.hypot(s.vx, s.vy)).toBeLessThanOrEqual(105.001); expect(s.x).toBeGreaterThanOrEqual(w.bounds.left); expect(s.x).toBeLessThanOrEqual(w.bounds.right); }
+    for (const s of w.sheep) { expect(Number.isFinite(s.x + s.y + s.vx + s.vy)).toBe(true); expect(Math.hypot(s.vx, s.vy)).toBeLessThanOrEqual(SPEEDS.sheepPanic + 0.001); expect(s.x).toBeGreaterThanOrEqual(w.bounds.left); expect(s.x).toBeLessThanOrEqual(w.dogBounds.right); }
     expect([...w.pasture.grass].every(g => Number.isFinite(g) && g >= 0 && g <= 1)).toBe(true);
   });
 });
