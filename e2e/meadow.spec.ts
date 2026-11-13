@@ -107,23 +107,24 @@ test('sheep heads keep priority over overlapping wool', async ({ page }) => {
   expect(result.priority).toBe(4); expect(result.tile).toBe(0); expect(result.glyph).toBe('O');
 });
 
-test('larger light faces and ears remain clear on completely grazed ground in every direction', async ({ page }) => {
+test('white outlined dark faces and pronounced ears stay clear on grazed ground in every direction', async ({ page }) => {
   const result = await page.evaluate(() => {
     const app = (window as any).__meadow, w = app.world; w.reset(1); w.paused = true; w.pasture.grass.fill(0); w.pasture.flower.fill(-1);
     const s = w.sheep[0], p = w.pasture, scale = w.scale, x = w.width * 0.5, y = w.height * 0.4;
     Object.assign(s, { x, y, phase: 0, size: 1, state: 'walking' });
     return [0, Math.PI / 2, Math.PI, -Math.PI / 2].map(heading => {
-      s.heading = heading; app.renderer.render(); let eyes = 0, face = 0, ears = 0;
+      s.heading = heading; app.renderer.render(); let eyes = 0, face = 0, ears = 0, rim = 0;
       for (let row = Math.floor((y - 65 * scale) / p.cellH); row < Math.ceil((y + 65 * scale) / p.cellH); row++) for (let col = Math.floor((x - 65 * scale) / p.cellW); col < Math.ceil((x + 65 * scale) / p.cellW); col++) {
         const cell = app.renderer.cellAt((col + 0.5) * p.cellW, (row + 0.5) * p.cellH);
         if (cell.glyph === 'O' && cell.priority === 4) eyes++;
-        if (cell.family === 8 && cell.level > 12) face++;
+        if (cell.family === 8 && cell.level <= 12) face++;
+        if (cell.family === 3 && cell.priority === 3 && cell.level >= 29) rim++;
         if (['(', ')'].includes(cell.glyph) && cell.priority === 3) ears++;
       }
-      return { eyes, face, ears };
+      return { eyes, face, ears, rim };
     });
   });
-  for (const head of result) { expect(head.eyes).toBe(2); expect(head.face).toBeGreaterThan(2); expect(head.ears).toBe(2); }
+  for (const head of result) { expect(head.eyes).toBe(2); expect(head.face).toBeGreaterThan(2); expect(head.ears).toBe(2); expect(head.rim).toBeGreaterThan(8); }
 });
 
 test('small lambs accompany the flock and their counter follows adult population changes', async ({ page }) => {

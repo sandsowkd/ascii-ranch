@@ -40,13 +40,14 @@ export class Renderer {
     this.atlas.width = this.aw * this.atlasCols; this.atlas.height = this.ah * 32 * 12;
     const ctx = this.atlas.getContext('2d')!;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `400 ${this.ah * 0.82}px "Geist Mono", monospace`;
-    const lows = [[48, 72, 35], [28, 24, 16], [126, 128, 105], [114, 120, 97], [99, 73, 43], [69, 69, 51], [32, 51, 29], [65, 70, 50], [111, 115, 105], [40, 111, 126], [138, 66, 74], [144, 113, 42]];
-    const highs = [[149, 182, 100], [75, 59, 34], [248, 243, 219], [246, 244, 218], [230, 182, 115], [229, 208, 136], [84, 123, 54], [169, 178, 138], [216, 215, 194], [116, 222, 218], [245, 153, 135], [246, 209, 107]];
+    const lows = [[48, 72, 35], [28, 24, 16], [126, 128, 105], [114, 120, 97], [99, 73, 43], [69, 69, 51], [32, 51, 29], [65, 70, 50], [28, 28, 27], [40, 111, 126], [138, 66, 74], [144, 113, 42]];
+    const highs = [[149, 182, 100], [75, 59, 34], [248, 243, 219], [255, 255, 245], [230, 182, 115], [229, 208, 136], [84, 123, 54], [169, 178, 138], [88, 84, 76], [116, 222, 218], [245, 153, 135], [246, 209, 107]];
     for (let family = 0; family < lows.length; family++) for (let level = 0; level < 32; level++) {
       const t = level / 31, lo = lows[family], hi = highs[family];
       ctx.fillStyle = `rgb(${Math.round(lo[0] + (hi[0] - lo[0]) * t)},${Math.round(lo[1] + (hi[1] - lo[1]) * t)},${Math.round(lo[2] + (hi[2] - lo[2]) * t)})`;
       for (let g = 0; g < GLYPHS.length; g++) {
-        ctx.font = `${family === 3 && GLYPHS[g] === 'O' ? 500 : 400} ${this.ah * (family === 3 && GLYPHS[g] === 'O' ? 0.98 : 0.82)}px "Geist Mono", monospace`;
+        const eye = family === 3 && GLYPHS[g] === 'O', outline = family === 3 && '/\\|-()'.includes(GLYPHS[g]);
+        ctx.font = `${eye ? 500 : outline ? 600 : 400} ${this.ah * (eye ? 0.98 : outline ? 0.92 : 0.82)}px "Geist Mono", monospace`;
         ctx.fillText(GLYPHS[g], g * this.aw + this.aw / 2, (family * 32 + level) * this.ah + this.ah / 2 + this.dpr * 0.35);
       }
     }
@@ -95,24 +96,25 @@ export class Renderer {
     }
     const nibble = s.state === 'grazing' || s.state === 'following' && Math.hypot(s.vx, s.vy) < 3 ? Math.sin(w.time * 5 + s.phase) * 2.5 : 0;
     const hx = s.x + dx * (rx + 11 * scale + nibble), hy = s.y + dy * (rx + 11 * scale + nibble);
-    // A longer stone-colored face, cream rim and wide drooping ears read on bare soil.
-    const headR = 17 * scale;
+    // One closed silhouette joins the face and floppy ears. A full cell of white
+    // around the dark interior stays continuous even on the smaller character grid.
+    const shape = (x: number, y: number) => {
+      const ox = x - hx, oy = y - hy, along = (ox * dx + oy * dy) / scale, side = Math.abs((ox * sx + oy * sy) / scale);
+      const face = (along / 16) ** 2 + (side / 14) ** 2 - 1;
+      const ear = ((along + 8 + (side - 14) * 0.35) / 6) ** 2 + ((side - 20) / 8) ** 2 - 1;
+      return Math.min(face, ear);
+    };
+    const headR = 33 * scale;
     for (let r = Math.floor((hy - headR) / p.cellH); r <= Math.ceil((hy + headR) / p.cellH); r++) for (let c = Math.floor((hx - headR) / p.cellW); c <= Math.ceil((hx + headR) / p.cellW); c++) {
-      const x = (c + 0.5) * p.cellW, y = (r + 0.5) * p.cellH, ox = x - hx, oy = y - hy;
-      const along = (ox * dx + oy * dy) / (15 * scale), side = (ox * sx + oy * sy) / (12.5 * scale);
-      const distance = along * along + side * side;
-      if (distance > 1) continue;
-      const nx = dx * along + sx * side, ny = dy * along + sy * side;
-      this.put(x, y, distance > 0.67 ? lineGlyph(-ny, nx) : ':', distance > 0.67 ? 0.8 : 0.58, distance > 0.67 ? 2 : 8, 2);
+      const x = (c + 0.5) * p.cellW, y = (r + 0.5) * p.cellH;
+      if (shape(x, y) > 0) continue;
+      const rim = shape(x - p.cellW, y) > 0 || shape(x + p.cellW, y) > 0 || shape(x, y - p.cellH) > 0 || shape(x, y + p.cellH) > 0;
+      const nx = shape(x + p.cellW * 0.3, y) - shape(x - p.cellW * 0.3, y);
+      const ny = shape(x, y + p.cellH * 0.3) - shape(x, y - p.cellH * 0.3);
+      this.put(x, y, rim ? lineGlyph(-ny, nx) : ':', rim ? 1 : 0.32, rim ? 3 : 8, rim ? 3 : 2);
     }
     for (const side of [-1, 1]) {
-      // Two rows of ink make the ears visibly wider than stray wool or legs.
-      for (let j = 0; j < 3; j++) {
-        const along = -7 - j * 1.5, lateral = side * (12 + j * 4.5);
-        const ex = hx + dx * along * scale + sx * lateral * scale, ey = hy + dy * along * scale + sy * lateral * scale;
-        this.put(ex, ey, j === 2 ? (side < 0 ? '(' : ')') : lineGlyph(sx * side - dx * 0.35, sy * side - dy * 0.35), 0.88, 2, 3);
-        if (j === 1) this.put(ex + dx * 4 * scale, ey + dy * 4 * scale, ':', 0.72, 8, 3);
-      }
+      this.put(hx - dx * 12.5 * scale + sx * side * 26.5 * scale, hy - dy * 12.5 * scale + sy * side * 26.5 * scale, side < 0 ? '(' : ')', 1, 3, 3);
       this.put(hx - dx * 3 * scale + sx * side * 7.5 * scale, hy - dy * 3 * scale + sy * side * 7.5 * scale, 'O', 1, 3, 4);
     }
     // Woolly forelock, two nostrils and a split lip distinguish the long sheep muzzle.
