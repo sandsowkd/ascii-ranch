@@ -122,7 +122,7 @@ describe('a controllable sheepdog', () => {
     w.cast('r'); expect(w.dog!.recalling).toBe(true); expect(w.dog!.targetX).toBe(w.home.doorX);
     advance(w, 12); expect(w.dog!.atHome).toBe(true); expect(w.dog!.x).toBeCloseTo(w.home.doorX);
     w.cast('r', { x: 900, y: 500 }); expect(w.dog!.launching).toBe(true); expect(w.dog!.targetX).toBe(900);
-    w.step(1 / 60); expect(Math.hypot(w.dog!.vx, w.dog!.vy)).toBeGreaterThan(SPEEDS.dogWalk * 2);
+    advance(w, 0.2); expect(Math.hypot(w.dog!.vx, w.dog!.vy)).toBeGreaterThan(SPEEDS.dogWalk * 2);
     expect(w.dog!.recallReady).toBe(false);
   });
   it('an idle dog sleeps after seven seconds and wakes on a command or ability', () => {
@@ -242,10 +242,10 @@ describe('safe dog routes and active herding', () => {
     for (let frame = 0; frame < 720; frame++) {
       Object.assign(w.sheep[0], { x: 600, y: 400, heading: 0, size: 1, vx: 0, vy: 0, timer: 100 });
       w.step(1 / 60); const d = w.dog!;
-      expect(Math.hypot(d.x - 608, d.y - 400)).toBeGreaterThanOrEqual(56.9);
+      expect(Math.hypot(d.x - 608, d.y - 400)).toBeGreaterThanOrEqual(24.9);
       lateral = Math.max(lateral, Math.abs(d.y - 400));
     }
-    expect(lateral).toBeGreaterThan(55); expect(Math.hypot(w.dog!.x - 950, w.dog!.y - 400)).toBeLessThan(3);
+    expect(lateral).toBeGreaterThan(30); expect(Math.hypot(w.dog!.x - 950, w.dog!.y - 400)).toBeLessThan(3);
   });
   it('Come By runs faster and reduces flock spread compared with ordinary grazing', () => {
     const active = new World(1440, 900, 18), calm = new World(1440, 900, 18);
@@ -284,5 +284,39 @@ describe('shortest turns and visible grazing', () => {
     expect(p.at(200, 200)).toBe(1);
     for (let i = 0; i < 600; i++) p.step(0.1);
     expect(p.at(450, 350)).toBe(0); expect(p.at(458, 350)).toBe(0);
+  });
+});
+
+
+describe('committed routes and flexible clearance', () => {
+  it('keeps the same side of a moving sheep during a sprint instead of zigzagging', () => {
+    const w = new World(1200, 900, 1); w.toggleDog(); Object.assign(w.dog!, { x: 250, y: 400 }); w.sendDog(950, 400); w.cast('e');
+    const sides = new Set<number>(); let deviation = 0;
+    for (let frame = 0; frame < 600; frame++) {
+      Object.assign(w.sheep[0], { x: 600, y: 400 + Math.sin(frame * 0.18) * 8, heading: 0, size: 1, vx: 0, vy: 0, timer: 100 });
+      w.step(1 / 60); const d = w.dog!;
+      if (d.x > 360 && d.x < 720 && Math.abs(d.y - 400) > 7) sides.add(Math.sign(d.y - 400));
+      deviation = Math.max(deviation, Math.abs(d.y - 400));
+    }
+    expect(sides.size).toBe(1); expect(deviation).toBeGreaterThan(25); expect(w.dog!.x).toBeGreaterThan(940);
+  });
+  it('brushes through an available gap between sheep instead of taking a wide detour', () => {
+    const w = new World(1200, 900, 2); w.toggleDog(); Object.assign(w.dog!, { x: 250, y: 400 }); w.sendDog(950, 400); w.cast('e');
+    let deviation = 0, squeezed = false;
+    for (let frame = 0; frame < 600; frame++) {
+      w.sheep.forEach((s, i) => Object.assign(s, { x: 600, y: i ? 432 : 368, heading: 0, size: 1, vx: 0, vy: 0, timer: 100 }));
+      w.step(1 / 60); const d = w.dog!; squeezed ||= d.navMode === 'squeeze';
+      deviation = Math.max(deviation, Math.abs(d.y - 400));
+    }
+    expect(squeezed).toBe(true); expect(deviation).toBeLessThan(18); expect(w.dog!.x).toBeGreaterThan(940);
+  });
+  it('can reach a necessarily occupied target instead of endlessly bouncing off it', () => {
+    const w = new World(1200, 900, 1); w.toggleDog(); Object.assign(w.dog!, { x: 350, y: 400 }); w.sendDog(608, 400); w.cast('e');
+    let crossing = false;
+    for (let frame = 0; frame < 360; frame++) {
+      Object.assign(w.sheep[0], { x: 600, y: 400, heading: 0, size: 1, vx: 0, vy: 0, timer: 100 });
+      w.step(1 / 60); crossing ||= w.dog!.navMode === 'cross';
+    }
+    expect(crossing).toBe(true); expect(Math.hypot(w.dog!.x - 608, w.dog!.y - 400)).toBeLessThan(3);
   });
 });

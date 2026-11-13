@@ -20,7 +20,7 @@ export interface Dog {
   x: number; y: number; vx: number; vy: number; heading: number; targetX: number; targetY: number;
   arrived: boolean; sprint: number; orbit: 'w' | null; orbitEntering: boolean; orbitPath: Point[]; orbitProgress: number; orbitUpdatedAt: number;
   anchorX: number; anchorY: number; recallReady: boolean; recalling: boolean; atHome: boolean; launching: boolean;
-  idleTime: number; sleeping: boolean; navPath: Point[]; navAt: number; navGoalX: number; navGoalY: number;
+  idleTime: number; sleeping: boolean; navPath: Point[]; navAt: number; navGoalX: number; navGoalY: number; navMode: 'clear' | 'squeeze' | 'cross'; navStuck: number; navClearSince: number;
 }
 export interface Feed { id: number; x: number; y: number; amount: number; age: number; seed: number }
 export interface Bark { x: number; y: number; age: number }
@@ -94,13 +94,13 @@ export class World {
     const p = this.dogPoint(this.pen.left - 42 * this.scale, this.home.y);
     this.dog = { ...p, vx: 0, vy: 0, heading: -2.8, targetX: p.x, targetY: p.y, arrived: true,
       sprint: 0, orbit: null, orbitEntering: false, orbitPath: [], orbitProgress: 0, orbitUpdatedAt: 0,
-      anchorX: p.x, anchorY: p.y, recallReady: false, recalling: false, atHome: false, launching: false, idleTime: 0, sleeping: false, navPath: [], navAt: -10, navGoalX: p.x, navGoalY: p.y };
+      anchorX: p.x, anchorY: p.y, recallReady: false, recalling: false, atHome: false, launching: false, idleTime: 0, sleeping: false, navPath: [], navAt: -10, navGoalX: p.x, navGoalY: p.y, navMode: 'clear', navStuck: 0, navClearSince: -1 };
     return true;
   }
   sendDog(x: number, y: number) {
     if (!this.dog) this.toggleDog();
     const p = this.dogPoint(x, y), d = this.dog!;
-    Object.assign(d, { targetX: p.x, targetY: p.y, arrived: false, orbit: null, recallReady: false, recalling: false, atHome: false, launching: false, idleTime: 0, sleeping: false, navPath: [], navAt: -10 });
+    Object.assign(d, { targetX: p.x, targetY: p.y, arrived: false, orbit: null, recallReady: false, recalling: false, atHome: false, launching: false, idleTime: 0, sleeping: false, navPath: [], navAt: -10, navMode: 'clear', navStuck: 0, navClearSince: -1 });
     this.marker = { ...p, age: 0 };
   }
   /** A padded envelope of EVERY sheep, rather than a mean radius. */
@@ -199,9 +199,28 @@ export class World {
     }
     s.goalX = bestX; s.goalY = bestY; s.timer = 16 + this.random() * 15; s.state = 'walking';
   }
-  dogObstacles(): Obstacle[] {
+  dogObstacles(mode: 'clear' | 'squeeze' | 'cross' = 'clear'): Obstacle[] {
+    const body = mode === 'clear' ? 24 : mode === 'squeeze' ? 18 : 9;
+    const margin = mode === 'clear' ? 13 : mode === 'squeeze' ? 7 : 3;
     return this.sheep.map(s => ({ x: s.x + Math.cos(s.heading) * 8 * this.scale,
-      y: s.y + Math.sin(s.heading) * 8 * this.scale, radius: (36 * s.size + 21) * this.scale }));
+      y: s.y + Math.sin(s.heading) * 8 * this.scale, radius: (body * s.size + margin) * this.scale }));
+  }
+  private chooseDogRoute(goal: Point) {
+    const d = this.dog!, start = { x: d.x, y: d.y };
+    const length = (path: Point[]) => { let sum = 0, from = start; for (const p of path) { sum += Math.hypot(p.x - from.x, p.y - from.y); from = p; } return sum; };
+    const reaches = (path: Point[]) => !!path.length && Math.hypot(path[path.length - 1].x - goal.x, path[path.length - 1].y - goal.y) < 5 * this.scale;
+    const clearObstacles = this.dogObstacles('clear'), tightObstacles = this.dogObstacles('squeeze');
+    const clear = planDogPath(start, goal, this.dogBounds, clearObstacles, 16 * this.scale);
+    let path = clear, mode: Dog['navMode'] = 'clear';
+    // Tight gaps are useful when a generous detour costs noticeably more distance.
+    const tight = planDogPath(start, goal, this.dogBounds, tightObstacles, 12 * this.scale);
+    const gap = segmentClear(start, goal, tightObstacles) && clearObstacles.filter(o => !segmentClear(start, goal, [o])).length > 1;
+    if (reaches(tight) && (!reaches(clear) || gap || length(tight) * 1.015 + 8 * this.scale < length(clear))) { path = tight; mode = 'squeeze'; }
+    if (!reaches(path) || d.navStuck > 0.85) {
+      const crossing = planDogPath(start, goal, this.dogBounds, this.dogObstacles('cross'), 12 * this.scale);
+      path = crossing; if (!reaches(path)) path.push(goal); mode = 'cross';
+    }
+    d.navPath = path; d.navMode = mode; d.navAt = this.time; d.navGoalX = goal.x; d.navGoalY = goal.y; d.navClearSince = -1;
   }
   private stepDog(dt: number) {
     const d = this.dog; if (!d) return;
@@ -216,23 +235,34 @@ export class World {
       if (d.orbitProgress >= 1) { d.orbit = null; d.targetX = d.x; d.targetY = d.y; }
     }
     const obstacles = this.dogObstacles(), goal = { x: d.targetX, y: d.targetY };
-    let waypoint = goal;
-    if (Math.hypot(goal.x - d.x, goal.y - d.y) > 2 && !segmentClear(d, goal, obstacles)) {
-      const changed = Math.hypot(goal.x - d.navGoalX, goal.y - d.navGoalY) > 28 * this.scale;
-      if (changed || this.time - d.navAt > 0.35 || !d.navPath.length || !segmentClear(d, d.navPath[0], obstacles)) {
-        d.navPath = planDogPath(d, goal, this.dogBounds, obstacles, 22 * this.scale);
-        d.navAt = this.time; d.navGoalX = goal.x; d.navGoalY = goal.y;
-      }
-      while (d.navPath.length && Math.hypot(d.navPath[0].x - d.x, d.navPath[0].y - d.y) < 5 * this.scale) d.navPath.shift();
-      waypoint = d.navPath[0] ?? d;
-    } else d.navPath.length = 0;
+    const goalDistance = Math.hypot(goal.x - d.x, goal.y - d.y), direct = segmentClear(d, goal, obstacles);
+    if (direct) { if (d.navClearSince < 0) d.navClearSince = this.time; } else d.navClearSince = -1;
+    while (d.navPath.length && Math.hypot(d.navPath[0].x - d.x, d.navPath[0].y - d.y) < (d.navPath.length === 1 ? 1.5 : 5) * this.scale) d.navPath.shift();
+    const finishingCross = d.navMode === 'cross' && goalDistance < 30 * this.scale;
+    const changed = Math.hypot(goal.x - d.navGoalX, goal.y - d.navGoalY) > 65 * this.scale;
+    const routeAge = this.time - d.navAt;
+    const directStable = direct && d.navClearSince >= 0 && this.time - d.navClearSince > 0.35 && routeAge > 0.65;
+    if (goalDistance > 2 && (!direct || d.navPath.length)) {
+      // Commit to a side through a sprint; moving wool does not reset the route each frame.
+      if (!finishingCross && (changed || !d.navPath.length || routeAge > 1.05 || (d.navStuck > 0.3 && routeAge > 0.4))) this.chooseDogRoute(goal);
+      if (directStable && !finishingCross) { d.navPath.length = 0; d.navMode = 'clear'; }
+    } else { d.navPath.length = 0; d.navMode = 'clear'; }
+    const waypoint = finishingCross ? goal : d.navPath[0] ?? (direct || d.navMode === 'cross' ? goal : d);
     const dx = waypoint.x - d.x, dy = waypoint.y - d.y, distance = Math.hypot(dx, dy);
     const max = (d.launching ? SPEEDS.dogRelease : d.sprint > 0 ? SPEEDS.dogSprint : d.orbit ? SPEEDS.dogOrbit : SPEEDS.dogWalk) * this.scale;
-    const speed = Math.min(max, distance * 4);
-    const proposed = this.dogPoint(d.x + (distance > 0.6 ? dx / distance * speed * dt : 0), d.y + (distance > 0.6 ? dy / distance * speed * dt : 0));
-    const fraction = safeMovementFraction(d, proposed, obstacles);
+    const speed = Math.min(max, distance * 5);
+    const wantedX = distance > 0.6 ? dx / distance * speed : 0, wantedY = distance > 0.6 ? dy / distance * speed : 0;
+    const blend = 1 - Math.exp(-dt * 14);
+    let vx = d.vx + (wantedX - d.vx) * blend, vy = d.vy + (wantedY - d.vy) * blend;
+    if (goalDistance < 2 || distance < 0.6) { vx = 0; vy = 0; }
+    const proposed = this.dogPoint(d.x + vx * dt, d.y + vy * dt);
+    // Wool can touch: only the smaller core stops motion. Crossing is the last resort.
+    const cores = this.dogObstacles(d.navMode === 'clear' ? 'squeeze' : 'cross');
+    const fraction = d.navMode === 'cross' ? 1 : safeMovementFraction(d, proposed, cores);
     d.vx = (proposed.x - d.x) * fraction / dt; d.vy = (proposed.y - d.y) * fraction / dt;
     d.x += d.vx * dt; d.y += d.vy * dt; d.arrived = Math.hypot(d.targetX - d.x, d.targetY - d.y) < 2;
+    const moving = Math.hypot(d.vx, d.vy);
+    d.navStuck = goalDistance > 12 * this.scale && moving < 12 * this.scale ? d.navStuck + dt : Math.max(0, d.navStuck - dt * 3);
     if (!d.arrived && Math.hypot(d.vx, d.vy) > 2) d.heading = angleDelta(0, d.heading + clamp(angleDelta(d.heading, Math.atan2(d.vy, d.vx)), -dt * 5, dt * 5));
     if (d.arrived) {
       if (d.recalling) { d.recalling = false; d.atHome = true; d.x = this.home.doorX; d.y = this.home.doorY; }
@@ -259,7 +289,10 @@ export class World {
       const dogDist = dog && !dog.atHome ? Math.hypot(s.x - dog.x, s.y - dog.y) : Infinity;
       const avoidRadius = this.dogAvoidanceRadius();
       const alertRadius = dog?.sleeping ? 0 : avoidRadius * (0.95 + (s.courage - 1) * 0.25);
-      const predictedDist = dog && !dog.sleeping && !dog.atHome ? Math.hypot(s.x - dog.x - dog.vx * 0.55, s.y - dog.y - dog.vy * 0.55) : Infinity;
+      const dogSpeed = dog ? Math.hypot(dog.vx, dog.vy) : 0;
+      const expectedSpeed = dog?.orbit ? SPEEDS.dogOrbit : dog && (dog.sprint > 0 || dog.launching) ? SPEEDS.dogSprint : SPEEDS.dogWalk;
+      const anticipation = dog && !dog.arrived && dogSpeed > 1 ? Math.max(1, expectedSpeed * scale * 0.9 / dogSpeed) : 1;
+      const predictedDist = dog && !dog.sleeping && !dog.atHome ? Math.hypot(s.x - dog.x - dog.vx * anticipation * 0.55, s.y - dog.y - dog.vy * anticipation * 0.55) : Infinity;
       const pressureDist = Math.min(dogDist, predictedDist);
       const barking = s.barkLeft > 0 && Math.hypot(s.barkGoalX - s.x, s.barkGoalY - s.y) > 8 * scale;
       let food: Feed | undefined, nearest = 380 * scale;
