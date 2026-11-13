@@ -80,7 +80,7 @@ export class Controller {
   private cancel = () => { this.pointerId = null; this.button = -1; this.canvas.classList.remove('dragging'); };
   cast(key: Ability) {
     if (this.world.cast(key, this.pointer)) {
-      const text: Record<Ability, string> = { q: 'woof! everybody, make some room.', w: 'the long way round. every last sheep.', e: 'a quick pair of paws.', r: this.world.dog?.recallReady ? 'back to the pen. r again to race to your cursor.' : 'back to the meadow!' };
+      const text: Record<Ability, string> = { q: 'woof! a little room, please.', w: 'the long way round. every last sheep.', e: 'a quick pair of paws.', r: this.world.dog?.recallReady ? 'back to the pen. r again to race to your cursor.' : 'back to the meadow!' };
       this.toast(text[key]); this.sync(); this.renderer.render();
     }
   }

@@ -1,10 +1,11 @@
 import { clamp, hash3, lineGlyph } from '../vendor/pond-math';
+import { DENSITY_GLYPHS, grassAppearance } from './grass';
 import type { Sheep, World } from '../simulation/World';
 
 /** Pond's density ramp, local ink and cached font, adapted into a living pasture.
  * Math helpers and density ramp derive from stqfdyr/ascii-pond (MIT).
  * Copyright (c) 2026 stqfdyr; public/licenses/ascii-pond-MIT.txt. */
-export const DENSITY_GLYPHS = "t%SX8@#";
+
 const GLYPHS = " tSX" + ".,:;'`|/\\v!+*ox@O%#8-=~^<>()[]zZ";
 export const BG = '#1a1917';
 export class Renderer {
@@ -112,6 +113,11 @@ export class Renderer {
     this.put(hx + dx * 11 * scale, hy + dy * 11 * scale, lineGlyph(sx, sy), 0.55, 7, 3);
 
   }
+  private stroke(x1: number, y1: number, x2: number, y2: number, level: number, family: number) {
+    const steps = Math.max(1, Math.ceil(Math.hypot(x2 - x1, y2 - y1) / (this.world.pasture.cellW * 0.7)));
+    const glyph = lineGlyph(x2 - x1, y2 - y1);
+    for (let i = 0; i <= steps; i++) this.put(x1 + (x2 - x1) * i / steps, y1 + (y2 - y1) * i / steps, glyph, level, family);
+  }
   private dog() {
     const w = this.world, d = w.dog;
     if (!d) return;
@@ -119,8 +125,12 @@ export class Renderer {
     const rx = 22 * scale, ry = 11.5 * scale, speed = Math.hypot(d.vx, d.vy);
     this.shadow(d.x + 4, d.y + 6, rx + 9, ry + 7);
     for (const front of [-1, 1]) for (const side of [-1, 1]) {
-      const f = front * 13 * scale + Math.sin(w.time * (d.sprint > 0 ? 25 : 16) + front * side) * (speed > 3 ? 4 : 0), lateral = side * 15 * scale;
-      this.put(d.x + dx * f + sx * lateral, d.y + dy * f + sy * lateral, lineGlyph(dx, dy), 0.6, 4);
+      const stride = Math.sin(w.time * (d.sprint > 0 || d.launching ? 25 : 18) + (front === side ? 0 : Math.PI));
+      const f = front * 13 * scale, kick = speed > 3 ? stride * 7 * scale : 0;
+      const hipX = d.x + dx * f + sx * side * 8 * scale, hipY = d.y + dy * f + sy * side * 8 * scale;
+      const kneeX = d.x + dx * (f + kick * 0.45) + sx * side * 16 * scale, kneeY = d.y + dy * (f + kick * 0.45) + sy * side * 16 * scale;
+      const footX = d.x + dx * (f + kick) + sx * side * 21 * scale, footY = d.y + dy * (f + kick) + sy * side * 21 * scale;
+      this.stroke(hipX, hipY, kneeX, kneeY, 0.95, 4); this.stroke(kneeX, kneeY, footX, footY, 0.85, 3);
     }
     for (let r = Math.floor((d.y - rx) / p.cellH); r <= Math.ceil((d.y + rx) / p.cellH); r++) for (let c = Math.floor((d.x - rx) / p.cellW); c <= Math.ceil((d.x + rx) / p.cellW); c++) {
       const x = (c + 0.5) * p.cellW, y = (r + 0.5) * p.cellH, ox = x - d.x, oy = y - d.y;
@@ -129,7 +139,13 @@ export class Renderer {
       const chest = along > rx * 0.35 && Math.abs(side) < ry * 0.9;
       this.put(x, y, chest ? 'o' : '#', chest ? 0.85 : 0.8, chest ? 2 : 4);
     }
-    this.put(d.x - dx * (rx + 6) + sx * Math.sin(w.time * 7) * 5, d.y - dy * (rx + 6) + sy * Math.sin(w.time * 7) * 5, '~', 0.8, 4);
+    const wag = d.sleeping ? 0 : Math.sin(w.time * (speed > 3 ? 15 : 5)) * (speed > 3 ? 10 : 4) * scale;
+    let tailX = d.x - dx * rx, tailY = d.y - dy * rx;
+    for (let j = 1; j <= 5; j++) {
+      const t = j / 5, x = d.x - dx * (rx + t * 21 * scale) + sx * wag * t * t;
+      const y = d.y - dy * (rx + t * 21 * scale) + sy * wag * t * t;
+      this.stroke(tailX, tailY, x, y, 0.95, j === 5 ? 3 : 4); tailX = x; tailY = y;
+    }
     const hx = d.x + dx * (rx + 2), hy = d.y + dy * (rx + 2);
     for (const side of [-1, 1]) this.put(hx + sx * side * 7 - dx * 4, hy + sy * side * 7 - dy * 4, '^', 0.55, 4);
     this.put(hx, hy, 'o', 0.85, 3);
@@ -182,16 +198,10 @@ export class Renderer {
       const i = r * cols + c, grass = p.grass[i], texture = this.texture[i];
       const wind = Math.sin(c * 0.07 + r * 0.047 - w.time * 0.45) * 0.55 + Math.sin(r * 0.13 - w.time * 0.28) * 0.3;
       const remaining = clamp(grass / Math.max(0.1, p.capacity[i]), 0, 1);
-      // Pond's exact dense ramp ends in #. No terrain or animal has a tile fill.
-      const density = clamp(remaining - texture * 0.12, 0, 1);
-      let glyph = density > 0.78 ? (texture < 0.27 ? "'" : texture < 0.5 ? ',' : texture < 0.72 ? '|' : texture < 0.85 ? 'v' : texture < 0.93 ? (wind > 0 ? '/' : '\\') : DENSITY_GLYPHS[Math.min(6, Math.floor(texture * 7))]) : density > 0.48 ? DENSITY_GLYPHS[Math.round((density - 0.48) / 0.52 * 4)] :
-        density > 0.28 ? (texture > 0.5 ? ';' : "'") : density > 0.12 ? ',' : '.';
-      if (p.trampled[i] > 0.3 && remaining > 0.45) glyph = texture > 0.5 ? '/' : '\\';
-      const eaten = p.cropped[i] > 0 || remaining < 0.78;
-      if (eaten) glyph = '.';
-      let family = eaten ? 6 : 0;
-      let level = eaten ? 0.32 : 0.12 + Math.pow(remaining, 2) * 0.53 + wind * 0.025;
-      if (p.flower[i] >= 0 && !eaten && grass > 0.5 && remaining > 0.8) { glyph = p.flower[i] > 0.5 ? '*' : '+'; family = p.flower[i] > 0.7 ? 3 : 5; level = 0.45 + texture * 0.25; }
+      const ink = grassAppearance(remaining, texture, wind);
+      let { glyph, family, level } = ink;
+      if (p.trampled[i] > 0.3 && remaining > 0.9) glyph = texture > 0.5 ? '/' : '\\';
+      if (p.flower[i] >= 0 && remaining > 0.95) { glyph = p.flower[i] > 0.5 ? '*' : '+'; family = p.flower[i] > 0.7 ? 3 : 5; level = 0.45 + texture * 0.25; }
       const edge = Math.min(c * cw, w.width - c * cw, r * ch, w.height - r * ch);
       // Dense meadow at the edges, quiet breathing room for the controls.
       const uiDim = Math.min(r * ch / 100, (w.height - r * ch) / 125, 1);
@@ -215,7 +225,7 @@ export class Renderer {
     }
     for (const bark of w.barks) for (let ring = 0; ring < 2; ring++) {
       const age = bark.age - ring * 0.12;
-      if (age > 0) this.ring(bark.x, bark.y, age * 440 * w.scale, (1 - bark.age / 2.4) * (ring ? 0.4 : 0.8), 5);
+      if (age > 0) this.ring(bark.x, bark.y, age * 150 * w.scale, (1 - bark.age / 2.4) * (ring ? 0.4 : 0.8), 5);
     }
     this.pen();
     for (const s of w.sheep) this.shadow(s.x + 4, s.y + 7, 25.5 * w.scale * s.size + 8, 17.5 * w.scale * s.size + 5);

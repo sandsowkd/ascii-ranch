@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { World, SPEEDS } from '../src/simulation/World';
+import { World, SPEEDS, angleDelta } from '../src/simulation/World';
+import { grassAppearance } from '../src/engine/grass';
+import { nearestOnRoute, perimeter } from '../src/simulation/route';
 import { Pasture } from '../src/simulation/Pasture';
 
 function advance(world: World, seconds: number) { for (let i = 0; i < seconds * 60; i++) world.step(1 / 60); }
@@ -23,17 +25,17 @@ describe('the living pasture', () => {
     const p = new Pasture(900, 700), i = p.index(400, 300);
     p.grass[i] = 0; p.tread(400, 300, 1); const tread = p.trampled[i];
     for (let k = 0; k < 1200; k++) p.step(0.1);
-    expect(p.grass[i]).toBeGreaterThan(0.08); expect(p.grass[i]).toBeLessThan(0.12); expect(p.grass[i]).toBeLessThanOrEqual(p.capacity[i]);
+    expect(p.grass[i]).toBeGreaterThan(0.35); expect(p.grass[i]).toBeLessThan(0.42); expect(p.grass[i]).toBeLessThanOrEqual(p.capacity[i]);
     expect(p.trampled[i]).toBeLessThan(tread * 0.01);
   });
   it('keeps nibbled ground cropped for minutes, preserves it on resize, and lets the brush restore it', () => {
     const p = new Pasture(900, 700), i = p.index(400, 300);
     p.bite(400, 300, 5, 25); const grass = p.grass[i];
     expect(p.cropped[i]).toBe(1);
-    for (let k = 0; k < 600; k++) p.step(0.1);
+    for (let k = 0; k < 200; k++) p.step(0.1);
     expect(p.grass[i]).toBeCloseTo(grass, 5); expect(p.cropped[i]).toBe(1);
     p.resize(1800, 1400); const next = p.index(800, 600);
-    expect(p.cropped[next]).toBe(1); expect(p.recoverIn[next]).toBeGreaterThan(25);
+    expect(p.cropped[next]).toBe(1); expect(p.recoverIn[next]).toBeGreaterThan(10);
     p.regrow(800, 600); expect(p.at(800, 600)).toBe(1); expect(p.cropped[next]).toBe(0); expect(p.recoverIn[next]).toBe(0);
   });
   it('uses a character grid exactly one-third smaller than the previous field', () => {
@@ -129,13 +131,13 @@ describe('a controllable sheepdog', () => {
     advance(w, 7.2); expect(w.dog!.sleeping).toBe(true);
     w.sendDog(600, 300); expect(w.dog!.sleeping).toBe(false);
   });
-  it('Q scares even distant sheep into a sustained six-second escape', () => {
+  it('Q moves nearby sheep only a couple of body lengths and leaves distant sheep alone', () => {
     const w = new World(1800, 1000, 2); w.toggleDog();
-    Object.assign(w.sheep[0], { x: 850, y: 450 }); Object.assign(w.sheep[1], { x: 1300, y: 600 });
-    const positions = w.sheep.map(s => ({ x: s.x, y: s.y })); w.cast('q'); advance(w, 4);
-    expect(w.sheep.every(s => s.state === 'startled')).toBe(true);
-    w.sheep.forEach((s, i) => expect(Math.hypot(s.x - positions[i].x, s.y - positions[i].y)).toBeGreaterThan(150));
-    advance(w, 2.2); expect(w.panicLeft).toBe(0);
+    Object.assign(w.dog!, { x: 500, y: 400, targetX: 500, targetY: 400 });
+    Object.assign(w.sheep[0], { x: 650, y: 400, timer: 100 }); Object.assign(w.sheep[1], { x: 1300, y: 400, timer: 100 });
+    w.cast('q'); expect(w.sheep[0].barkLeft).toBeGreaterThan(2); expect(w.sheep[1].barkLeft).toBe(0);
+    advance(w, 2.5); expect(w.sheep[0].x - 650).toBeGreaterThan(65); expect(w.sheep[0].x - 650).toBeLessThan(115);
+    expect(w.sheep[1].state).not.toBe('startled'); expect(w.panicLeft).toBe(0);
   });
   it('normal walking and food-following remain much slower than a bark escape', () => {
     const w = new World(1200, 900, 1), s = w.sheep[0];
@@ -152,21 +154,22 @@ describe('a controllable sheepdog', () => {
 });
 describe('natural flock cohesion', () => {
   const spread = (w: World) => { const h = w.herdCenter(); return w.sheep.reduce((sum, s) => sum + Math.hypot(s.x - h.x, s.y - h.y), 0) / w.sheep.length; };
-  it('brings scattered sheep into one loose group while retaining personal space', () => {
-    const w = new World(1440, 900, 18), before = spread(w);
-    advance(w, 70); const h = w.herdCenter();
-    expect(spread(w)).toBeLessThan(before * 0.8); expect(spread(w)).toBeLessThan(h.radius);
+  it('keeps a spread-out pasture with at most two local companions per sheep', () => {
+    const w = new World(1440, 900, 18), before = spread(w); advance(w, 70);
+    expect(spread(w)).toBeGreaterThan(before * 0.85);
+    expect(w.sheep.every(s => s.companions.length <= 2)).toBe(true);
+    expect(w.sheep.some(s => s.companions.length === 1)).toBe(true);
+    expect(w.sheep.some(s => s.companions.length === 2)).toBe(true);
     let closest = Infinity;
     for (let i = 0; i < w.sheep.length; i++) for (let j = i + 1; j < w.sheep.length; j++) closest = Math.min(closest, Math.hypot(w.sheep[i].x - w.sheep[j].x, w.sheep[i].y - w.sheep[j].y));
     expect(closest).toBeGreaterThan(35);
   });
-  it('lets the dog break up a flock, which gathers again once the pressure goes away', () => {
-    const w = new World(1440, 900, 6);
-    w.sheep.forEach((s, i) => { const angle = i / 6 * Math.PI * 2; Object.assign(s, { x: 720 + Math.cos(angle) * 90, y: 420 + Math.sin(angle) * 90, timer: 100 }); });
-    const before = spread(w); w.toggleDog(); Object.assign(w.dog!, { x: 720, y: 420, targetX: 720, targetY: 420 });
-    w.cast('q'); advance(w, 5); const scattered = spread(w);
-    expect(scattered).toBeGreaterThan(before + 120);
-    w.dog = null; advance(w, 80); expect(spread(w)).toBeLessThan(scattered * 0.7);
+  it('favors a large fresh patch over company on depleted ground', () => {
+    const w = new World(1200, 900, 2), p = w.pasture; p.grass.fill(0);
+    for (let r = 0; r < p.rows; r++) for (let c = 0; c < p.cols; c++) if (c * p.cellW > 640 && c * p.cellW < 850) p.grass[r * p.cols + c] = 1;
+    Object.assign(w.sheep[0], { x: 480, y: 400, companions: [w.sheep[1].id], socialTimer: 100, heading: 0 });
+    Object.assign(w.sheep[1], { x: 400, y: 400 }); w.step(1 / 60);
+    expect(w.sheep[0].state).toBe('walking'); expect(w.sheep[0].goalX).toBeGreaterThan(640);
   });
 });
 describe('stable state and controls', () => {
@@ -196,5 +199,38 @@ describe('stable state and controls', () => {
     }
     for (const s of w.sheep) { expect(Number.isFinite(s.x + s.y + s.vx + s.vy)).toBe(true); expect(Math.hypot(s.vx, s.vy)).toBeLessThanOrEqual(SPEEDS.sheepPanic + 0.001); expect(s.x).toBeGreaterThanOrEqual(w.bounds.left); expect(s.x).toBeLessThanOrEqual(w.dogBounds.right); }
     expect([...w.pasture.grass].every(g => Number.isFinite(g) && g >= 0 && g <= 1)).toBe(true);
+  });
+});
+
+
+describe('staged recovery and responsive controls', () => {
+  it('grows through bare, dot, shoot, blade, young and mature stages', () => {
+    const amounts = [0, 0.1, 0.3, 0.55, 0.8, 1], stages = amounts.map(a => grassAppearance(a, 0.8));
+    expect(stages.map(s => s.stage)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(stages[0].glyph).toBe(' '); expect(stages[1].glyph).toBe('.');
+    expect(stages[2].level).toBeGreaterThan(stages[1].level); expect(stages[4].family).toBe(0);
+  });
+  it('recovers earlier-eaten ground first with only a narrow timing variation', () => {
+    const p = new Pasture(900, 700); p.bite(300, 300, 5, 25);
+    for (let i = 0; i < 150; i++) p.step(0.1);
+    p.bite(600, 300, 5, 25);
+    for (let i = 0; i < 250; i++) p.step(0.1);
+    expect(p.recoverIn[p.index(300, 300)]).toBe(0); expect(p.recoverIn[p.index(600, 300)]).toBeGreaterThan(0);
+    expect(p.at(300, 300)).toBeGreaterThan(p.at(600, 300)); expect(p.edibleAt(300, 300)).toBe(0);
+  });
+  it('reacts ahead of an approaching dog and preserves its heading after arrival', () => {
+    const w = new World(1200, 900, 1); Object.assign(w.sheep[0], { x: 650, y: 400 }); w.toggleDog();
+    Object.assign(w.dog!, { x: 430, y: 400 }); w.sendDog(700, 400); w.step(1 / 60);
+    expect(w.sheep[0].state).toBe('startled'); expect(w.sheep[0].vx).toBeGreaterThan(0);
+    Object.assign(w.dog!, { x: 200.55, y: 400, targetX: 200, targetY: 400, heading: 2.8, arrived: false });
+    advance(w, 8); expect(Math.abs(angleDelta(w.dog!.heading, 2.8))).toBeLessThan(0.001);
+    expect(w.dog!.sleeping).toBe(true);
+  });
+  it('fits a rounded envelope to a diagonal flock instead of visiting empty rectangle corners', () => {
+    const w = new World(1200, 900, 3);
+    w.sheep.forEach((s, i) => Object.assign(s, { x: 250 + i * 300, y: 220 + i * 200 }));
+    const route = w.orbitRoute(), b = w.orbitOutline(), rectangle = 2 * (b.right - b.left + b.bottom - b.top);
+    expect(route.length).toBeGreaterThan(20); expect(perimeter(route)).toBeLessThan(rectangle * 0.85);
+    for (const sheep of w.sheep) expect(nearestOnRoute(route, sheep).distance).toBeGreaterThan(55);
   });
 });

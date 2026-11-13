@@ -23,7 +23,7 @@ test('living grass, grazing sheep, full canvas and no errors', async ({ page }, 
   mkdirSync('docs', { recursive: true }); await page.screenshot({ path: `docs/${info.project.name}.png` });
 });
 
-test('left-click movement, stronger bark and immediate recasts without cooldowns', async ({ page }) => {
+test('left-click movement, gentler bark and immediate recasts without cooldowns', async ({ page }) => {
   const first = await state(page), x = first.width * 0.7, y = first.height * 0.4;
   await page.mouse.click(x, y); const commanded = await state(page);
   expect(commanded.dog).not.toBeNull(); expect(commanded.dog.targetX).toBeCloseTo(x, 0); expect(commanded.feed.length).toBe(0);
@@ -31,13 +31,12 @@ test('left-click movement, stronger bark and immediate recasts without cooldowns
   await expect.poll(async () => { const s = await state(page); return Math.hypot(s.dog.x - x, s.dog.y - y); }).toBeLessThan(distance - 10);
   await page.keyboard.press('e'); expect((await state(page)).dog.sprint).toBeGreaterThan(0.3);
   await page.keyboard.press('q'); await page.keyboard.press('q');
-  expect((await state(page)).barks).toBe(2); expect((await state(page)).panic).toBeGreaterThan(5);
+  expect((await state(page)).barks).toBe(2); expect((await state(page)).panic).toBeGreaterThan(1.8);
   await expect(page.locator('[data-ability=q]')).toBeEnabled();
-  await expect.poll(async () => (await state(page)).sheep.every((s: any) => s.state === 'startled')).toBe(true);
 });
 
 test('W covers the entire flock; R recalls then launches straight to the cursor', async ({ page }, info) => {
-  await page.keyboard.press('w'); const w = await state(page); expect(w.dog.orbit).toBe('w');
+  await page.keyboard.press('w'); const w = await state(page); expect(w.dog.orbit).toBe('w'); expect(w.dog.orbitPath.length).toBeGreaterThan(20);
   expect(w.sheep.every((s: any) => s.x > w.outline.left && s.x < w.outline.right && s.y > w.outline.top && s.y < w.outline.bottom)).toBe(true);
   await expect(page.locator('[data-ability=w]')).toHaveClass(/active/);
   await page.keyboard.press('r'); let s = await state(page);
@@ -152,7 +151,7 @@ test('Space toggles a continuous hover regrow brush; P pauses independently', as
   expect((await state(page)).dog).toBeNull(); expect((await state(page)).feed).toHaveLength(0);
 });
 
-test('terrain matches Pond charcoal; cropped grass is dark green dots with no tile fills', async ({ page }, info) => {
+test('terrain matches Pond charcoal; bare grass rests on charcoal before growing through stages', async ({ page }, info) => {
   const result = await page.evaluate(() => {
     const app = (window as any).__meadow, w = app.world, p = w.pasture; w.paused = true; w.sheep.length = 0;
     p.flower.fill(-1); p.grass.fill(1); app.renderer.render();
@@ -163,7 +162,7 @@ test('terrain matches Pond charcoal; cropped grass is dark green dots with no ti
     p.grass.fill(0.02); app.renderer.render();
     for (let r = 10; r < p.rows - 20; r++) for (let c = 5; c < p.cols - 5; c++) {
       const cell = app.renderer.cellAt(c * p.cellW, r * p.cellH); full++;
-      if (cell.family === 1) brown++; if (cell.family === 6) dark++; if (cell.glyph === '.') dots++;
+      if (cell.family === 1) brown++; if (cell.family === 6) dark++; if (cell.glyph === ' ') dots++;
     }
     const ctx = app.renderer.canvas.getContext('2d'), d = app.renderer.canvas.width / w.width;
     const pixels = ctx.getImageData(Math.floor(w.width * 0.3 * d), Math.floor(w.height * 0.3 * d), 100, 100).data;
@@ -180,7 +179,7 @@ test('terrain matches Pond charcoal; cropped grass is dark green dots with no ti
   await page.screenshot({ path: `docs/${info.project.name}-grass.png` });
 });
 
-test('sheep naturally gather and leave lasting cropped patches', async ({ page }, info) => {
+test('sheep graze in loose groups and leave lasting cropped patches', async ({ page }, info) => {
   const result = await page.evaluate(() => {
     const app = (window as any).__meadow, w = app.world;
     w.reset(18); w.paused = false;
@@ -192,11 +191,11 @@ test('sheep naturally gather and leave lasting cropped patches', async ({ page }
     for (let i = 0; i < p.grass.length; i++) if (p.cropped[i]) {
       cropped++;
       const cell = app.renderer.cellAt((i % p.cols + 0.5) * p.cellW, (Math.floor(i / p.cols) + 0.5) * p.cellH);
-      if (cell.family === 6 && cell.glyph === '.') visibleDots++;
+      if (cell.family === 6 && [' ', '.', ',', "'"].includes(cell.glyph)) visibleDots++;
     }
     return { before, after: spread(), cropped, visibleDots, cellW: p.cellW, cellH: p.cellH };
   });
-  expect(result.after).toBeLessThan(result.before * 0.85); expect(result.cropped).toBeGreaterThan(100); expect(result.visibleDots).toBeGreaterThan(40);
+  expect(result.after).toBeGreaterThan(result.before * 0.85); expect(result.cropped).toBeGreaterThan(100); expect(result.visibleDots).toBeGreaterThan(40);
   await page.screenshot({ path: `docs/${info.project.name}-flock.png` });
 });
 
@@ -214,4 +213,30 @@ test('incremental glyph painting leaves no movement trails', async ({ page }) =>
     return different;
   });
   expect(changed).toBe(0);
+});
+
+
+test('regrowth gains characters and color gradually, and running dogs have visible feet and tails', async ({ page }, info) => {
+  const result = await page.evaluate(() => {
+    const app = (window as any).__meadow, w = app.world, p = w.pasture; w.paused = true; w.sheep.length = 0;
+    const amounts = [0, 0.1, 0.3, 0.55, 0.8, 1]; p.flower.fill(-1); p.trampled.fill(0);
+    for (let r = 0; r < p.rows; r++) for (let c = 0; c < p.cols; c++) p.grass[r * p.cols + c] = amounts[Math.min(5, Math.floor(c / p.cols * 6))];
+    app.renderer.render();
+    const stages = amounts.map((_, j) => app.renderer.cellAt((j + 0.5) / 6 * w.width, w.height * 0.4));
+    w.toggleDog(); const d = w.dog, x = w.width * 0.5, y = w.height * 0.4;
+    Object.assign(d, { x, y, targetX: x + 100, targetY: y, heading: 0, vx: 108, vy: 0 }); w.time = 0.25;
+    app.renderer.render(); let tail = 0, feet = 0;
+    for (let r = 0; r < p.rows; r++) for (let c = 0; c < p.cols; c++) {
+      const px = (c + 0.5) * p.cellW, py = (r + 0.5) * p.cellH, cell = app.renderer.cellAt(px, py);
+      if (![3, 4].includes(cell.family)) continue;
+      if (px < x - 23 * w.scale && px > x - 47 * w.scale && Math.abs(py - y) < 16 * w.scale) tail++;
+      if (Math.abs(px - x) < 26 * w.scale && Math.abs(py - y) > 12 * w.scale && Math.abs(py - y) < 26 * w.scale) feet++;
+    }
+    return { stages, tail, feet };
+  });
+  expect(result.stages[0].glyph).toBe(' '); expect(result.stages[1].glyph).toBe('.');
+  expect(result.stages[2].family).toBe(6); expect(result.stages[3].family).toBe(0);
+  expect(result.stages[5].level).toBeGreaterThan(result.stages[3].level);
+  expect(result.tail).toBeGreaterThan(3); expect(result.feet).toBeGreaterThan(8);
+  await page.screenshot({ path: `docs/${info.project.name}-regrowth.png` });
 });

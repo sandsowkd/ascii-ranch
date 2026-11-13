@@ -1,21 +1,23 @@
 import { clamp, hash3, TAU } from '../vendor/pond-math';
 import { Pasture } from './Pasture';
+import { aheadOnRoute, nearestOnRoute, perimeter, roundedEnvelope, type Point } from './route';
 
 export type SheepState = 'grazing' | 'walking' | 'following' | 'startled';
 export interface Sheep {
   id: number; x: number; y: number; vx: number; vy: number; heading: number;
   goalX: number; goalY: number; timer: number; hunger: number; state: SheepState;
   phase: number; size: number; speed: number; courage: number; wool: number; ate: number;
+  companions: number[]; socialTimer: number; barkLeft: number; barkGoalX: number; barkGoalY: number;
 }
 export type Ability = 'q' | 'w' | 'e' | 'r';
 export const ABILITIES: Record<Ability, { name: string; duration: number }> = {
   q: { name: 'Bark', duration: 2.4 }, w: { name: 'Come By', duration: 0 },
   e: { name: 'Sprint', duration: 1.25 }, r: { name: 'Recall / Release', duration: 0 },
 };
-export const SPEEDS = { sheepWalk: 13, sheepFood: 20, sheepChased: 26, sheepPanic: 64, dogWalk: 62, dogOrbit: 94, dogSprint: 185, dogRelease: 205 };
+export const SPEEDS = { sheepWalk: 13, sheepFood: 20, sheepChased: 26, sheepPanic: 46, dogWalk: 108, dogOrbit: 138, dogSprint: 235, dogRelease: 255 };
 export interface Dog {
   x: number; y: number; vx: number; vy: number; heading: number; targetX: number; targetY: number;
-  arrived: boolean; sprint: number; orbit: 'w' | null; orbitSide: number; orbitLeg: number; orbitEntering: boolean; orbitEntry: number;
+  arrived: boolean; sprint: number; orbit: 'w' | null; orbitEntering: boolean; orbitPath: Point[]; orbitProgress: number; orbitUpdatedAt: number;
   anchorX: number; anchorY: number; recallReady: boolean; recalling: boolean; atHome: boolean; launching: boolean;
   idleTime: number; sleeping: boolean;
 }
@@ -56,7 +58,7 @@ export class World {
   dogAvoidanceRadius() {
     const d = this.dog;
     if (!d || d.atHome) return 0;
-    return (d.sleeping ? 56 : d.sprint > 0 || d.launching ? 145 : !d.arrived || d.orbit ? 112 : 76) * this.scale;
+    return (d.sleeping ? 56 : d.sprint > 0 || d.launching ? 205 : !d.arrived || d.orbit ? 172 : 92) * this.scale;
   }
   private clampTo(x: number, y: number, b: Rect) {
     return { x: clamp(x, b.left, Math.max(b.left, b.right)), y: clamp(y, b.top, Math.max(b.top, b.bottom)) };
@@ -80,6 +82,7 @@ export class World {
     }
     this.sheep.push({ id, ...point, vx: 0, vy: 0, heading: rand() * TAU, goalX: point.x, goalY: point.y,
       timer: 8 + rand() * 12, hunger: 0.3 + rand() * 0.5, state: 'grazing', phase: rand() * TAU,
+      companions: [], socialTimer: 0, barkLeft: 0, barkGoalX: point.x, barkGoalY: point.y,
       size: 0.87 + rand() * 0.25, speed: 8 + rand() * 5, courage: 0.8 + rand() * 0.4, wool: rand(), ate: 0 });
     return true;
   }
@@ -88,7 +91,7 @@ export class World {
     if (this.dog) { this.dog = null; return false; }
     const p = this.dogPoint(this.pen.left - 42 * this.scale, this.home.y);
     this.dog = { ...p, vx: 0, vy: 0, heading: -2.8, targetX: p.x, targetY: p.y, arrived: true,
-      sprint: 0, orbit: null, orbitSide: 0, orbitLeg: 0, orbitEntering: false, orbitEntry: 0.5,
+      sprint: 0, orbit: null, orbitEntering: false, orbitPath: [], orbitProgress: 0, orbitUpdatedAt: 0,
       anchorX: p.x, anchorY: p.y, recallReady: false, recalling: false, atHome: false, launching: false, idleTime: 0, sleeping: false };
     return true;
   }
@@ -111,9 +114,9 @@ export class World {
     let radius = 0; for (const s of this.sheep) radius = Math.max(radius, Math.hypot(s.x - x, s.y - y));
     return { x, y, radius: radius + 58 * this.scale };
   }
-  private edgePoint(side: number, along: number, b: Rect) {
-    return side === 0 ? { x: b.left + (b.right - b.left) * along, y: b.top } : side === 1 ? { x: b.right, y: b.top + (b.bottom - b.top) * along } :
-      side === 2 ? { x: b.right - (b.right - b.left) * along, y: b.bottom } : { x: b.left, y: b.bottom - (b.bottom - b.top) * along };
+  orbitRoute(): Point[] {
+    const points = this.sheep.length ? this.sheep : [{ x: this.width * 0.5, y: this.height * 0.45 }];
+    return roundedEnvelope(points, 58 * this.scale).map(p => this.dogPoint(p.x, p.y));
   }
   cast(key: Ability, aim?: { x: number; y: number }) {
     if (this.paused) return false;
@@ -121,17 +124,20 @@ export class World {
     const d = this.dog!; d.idleTime = 0; d.sleeping = false;
     if (key === 'q') {
       if (this.barks.length >= 10) this.barks.shift();
-      this.barks.push({ x: d.x, y: d.y, age: 0 }); this.panicX = d.x; this.panicY = d.y; this.panicLeft = 6;
+      this.barks.push({ x: d.x, y: d.y, age: 0 }); this.panicX = d.x; this.panicY = d.y; this.panicLeft = 2.4;
+      for (const s of this.sheep) {
+        const dx = s.x - d.x, dy = s.y - d.y, distance = Math.hypot(dx, dy);
+        if (distance > 300 * this.scale) continue;
+        const angle = distance < 0.1 ? s.phase : Math.atan2(dy, dx);
+        const goal = this.clampPoint(s.x + Math.cos(angle) * 104 * this.scale, s.y + Math.sin(angle) * 104 * this.scale);
+        s.barkLeft = 2.4; s.barkGoalX = goal.x; s.barkGoalY = goal.y;
+      }
     }
     if (key === 'e') { if (d.arrived && aim) this.sendDog(aim.x, aim.y); d.sprint = ABILITIES.e.duration; }
     if (key === 'w') {
       d.recalling = false; d.recallReady = false; d.atHome = false; d.launching = false;
-      const b = this.orbitOutline();
-      const candidates = [clamp((d.x - b.left) / (b.right - b.left || 1), 0, 1), clamp((d.y - b.top) / (b.bottom - b.top || 1), 0, 1),
-        clamp((b.right - d.x) / (b.right - b.left || 1), 0, 1), clamp((b.bottom - d.y) / (b.bottom - b.top || 1), 0, 1)];
-      let nearest = Infinity;
-      for (let side = 0; side < 4; side++) { const p = this.edgePoint(side, candidates[side], b), dist = Math.hypot(p.x - d.x, p.y - d.y); if (dist < nearest) { nearest = dist; d.orbitSide = side; d.orbitEntry = candidates[side]; } }
-      d.orbit = 'w'; d.orbitEntering = true; d.orbitLeg = 0;
+      d.orbitPath = this.orbitRoute(); d.orbitProgress = 0; d.orbitUpdatedAt = this.time;
+      d.orbit = 'w'; d.orbitEntering = true;
     }
     if (key === 'r') {
       if (d.recallReady) {
@@ -159,7 +165,7 @@ export class World {
     for (const f of this.feed) Object.assign(f, this.clampPoint(f.x * sx, f.y * sy));
     this.barks.length = 0; this.marker = null;
   }
-  /** The flock follows its own center; no fixed invisible destination on the field. */
+  /** Aggregate position for diagnostics; grazing uses only local companions. */
   herdCenter() {
     let x = 0, y = 0;
     for (const s of this.sheep) { x += s.x; y += s.y; }
@@ -167,42 +173,48 @@ export class World {
     return { x: n ? x / n : this.width / 2, y: n ? y / n : this.height / 2,
       radius: Math.max(50 * this.scale, Math.min(45 * Math.sqrt(n) * this.scale, Math.min(b.right - b.left, b.bottom - b.top) * 0.4)) };
   }
+  private updateCompanions(s: Sheep, dt: number) {
+    s.socialTimer -= dt;
+    if (s.socialTimer > 0) return;
+    const nearby = this.sheep.filter(o => o !== s && Math.hypot(o.x - s.x, o.y - s.y) < 230 * this.scale)
+      .sort((a, b) => Math.hypot(a.x - s.x, a.y - s.y) - Math.hypot(b.x - s.x, b.y - s.y));
+    const count = this.random() < 0.22 ? 0 : this.random() < 0.6 ? 1 : 2;
+    s.companions = nearby.slice(0, count).map(o => o.id); s.socialTimer = 24 + this.random() * 25;
+  }
   private freshGrass(s: Sheep) {
     let score = -Infinity, bestX = s.x, bestY = s.y;
-    const herd = this.herdCenter();
-    for (let j = 0; j < 18; j++) {
-      const a = this.random() * TAU, radius = 30 + this.random() * 85;
+    const friends = this.sheep.filter(o => s.companions.includes(o.id));
+    for (let j = 0; j < 38; j++) {
+      const a = this.random() * TAU, radius = 35 + this.random() * (j < 25 ? 160 : 330);
       const p = this.clampPoint(s.x + Math.cos(a) * radius * this.scale, s.y + Math.sin(a) * radius * this.scale);
-      let quality = this.pasture.at(p.x, p.y) - Math.hypot(p.x - s.x, p.y - s.y) * 0.001;
-      if (this.sheep.length > 1) quality -= Math.max(0, Math.hypot(p.x - herd.x, p.y - herd.y) - herd.radius * 0.65) * 0.006;
-      for (const other of this.sheep) if (other !== s && Math.hypot(other.x - p.x, other.y - p.y) < 60 * this.scale) quality -= 0.35;
+      let quality = this.pasture.patchQuality(p.x, p.y, 25 * this.scale) * 3 - Math.hypot(p.x - s.x, p.y - s.y) * 0.002;
+      for (const other of this.sheep) if (other !== s && Math.hypot(other.x - p.x, other.y - p.y) < 70 * this.scale) quality -= 0.24;
+      // A little company is nice; food quality outweighs this small social bias.
+      for (const friend of friends) quality += Math.max(0, 1 - Math.hypot(p.x - friend.x, p.y - friend.y) / (180 * this.scale)) * 0.17;
       if (this.dog) quality -= Math.max(0, this.dogAvoidanceRadius() - Math.hypot(p.x - this.dog.x, p.y - this.dog.y)) * 0.015;
       if (Math.hypot(p.x - this.home.x, p.y - this.home.y) < 72 * this.scale) quality -= 2;
       if (quality > score) { score = quality; bestX = p.x; bestY = p.y; }
     }
-    s.goalX = bestX; s.goalY = bestY; s.timer = 10 + this.random() * 8; s.state = 'walking';
+    s.goalX = bestX; s.goalY = bestY; s.timer = 16 + this.random() * 15; s.state = 'walking';
   }
   private stepDog(dt: number) {
     const d = this.dog; if (!d) return;
     d.sprint = Math.max(0, d.sprint - dt);
     if (d.orbit) {
-      const b = this.orbitOutline(); d.anchorX = (b.left + b.right) / 2; d.anchorY = (b.top + b.bottom) / 2;
-      const entry = this.edgePoint(d.orbitSide, d.orbitEntry, b);
-      let p = d.orbitEntering || d.orbitLeg >= 4 ? entry : this.edgePoint((d.orbitSide + d.orbitLeg) % 4, 1, b);
-      if (Math.hypot(p.x - d.x, p.y - d.y) < 5 * this.scale) {
-        if (d.orbitEntering) d.orbitEntering = false;
-        else d.orbitLeg++;
-        if (d.orbitLeg > 4) { d.orbit = null; p = { x: d.x, y: d.y }; }
-        else p = d.orbitLeg >= 4 ? entry : this.edgePoint((d.orbitSide + d.orbitLeg) % 4, 1, b);
-      }
+      if (this.time - d.orbitUpdatedAt > 0.45) { d.orbitPath = this.orbitRoute(); d.orbitUpdatedAt = this.time; }
+      const path = d.orbitPath, near = nearestOnRoute(path, d);
+      if (d.orbitEntering && near.distance < 4 * this.scale) d.orbitEntering = false;
+      const p = d.orbitEntering ? near : aheadOnRoute(path, near, 38 * this.scale);
       d.targetX = p.x; d.targetY = p.y;
+      if (!d.orbitEntering) d.orbitProgress += Math.hypot(d.vx, d.vy) * dt / Math.max(1, perimeter(path));
+      if (d.orbitProgress >= 1) { d.orbit = null; d.targetX = d.x; d.targetY = d.y; }
     }
     const dx = d.targetX - d.x, dy = d.targetY - d.y, distance = Math.hypot(dx, dy);
     const max = (d.launching ? SPEEDS.dogRelease : d.sprint > 0 ? SPEEDS.dogSprint : d.orbit ? SPEEDS.dogOrbit : SPEEDS.dogWalk) * this.scale;
     const speed = Math.min(max, distance * 4);
     d.vx = distance > 0.6 ? dx / distance * speed : 0; d.vy = distance > 0.6 ? dy / distance * speed : 0;
     d.x += d.vx * dt; d.y += d.vy * dt; d.arrived = distance < 2;
-    if (speed > 2) d.heading += clamp(angleDelta(d.heading, Math.atan2(d.vy, d.vx)), -dt * 5, dt * 5);
+    if (!d.arrived && Math.hypot(d.vx, d.vy) > 2) d.heading += clamp(angleDelta(d.heading, Math.atan2(d.vy, d.vx)), -dt * 5, dt * 5);
     if (d.arrived) {
       if (d.recalling) { d.recalling = false; d.atHome = true; d.x = this.home.doorX; d.y = this.home.doorY; }
       d.launching = false;
@@ -219,27 +231,30 @@ export class World {
     this.barks = this.barks.filter(b => b.age < ABILITIES.q.duration);
     if (this.marker) { this.marker.age += dt; if (this.marker.age > 1.5) this.marker = null; }
     this.stepDog(dt);
-    const dog = this.dog, scale = this.scale, herd = this.herdCenter();
+    const dog = this.dog, scale = this.scale;
     for (const s of this.sheep) {
+      this.updateCompanions(s, dt); s.barkLeft = Math.max(0, s.barkLeft - dt);
       s.timer -= dt; s.hunger = Math.min(1, s.hunger + dt * 0.004);
       let desiredX = 0, desiredY = 0, speed = s.speed * scale;
       const dogDist = dog && !dog.atHome ? Math.hypot(s.x - dog.x, s.y - dog.y) : Infinity;
       const avoidRadius = this.dogAvoidanceRadius();
-      const alertRadius = dog?.sleeping ? 0 : avoidRadius * s.courage;
+      const alertRadius = dog?.sleeping ? 0 : avoidRadius * (0.95 + (s.courage - 1) * 0.25);
+      const predictedDist = dog && !dog.sleeping && !dog.atHome ? Math.hypot(s.x - dog.x - dog.vx * 0.55, s.y - dog.y - dog.vy * 0.55) : Infinity;
+      const pressureDist = Math.min(dogDist, predictedDist);
+      const barking = s.barkLeft > 0 && Math.hypot(s.barkGoalX - s.x, s.barkGoalY - s.y) > 8 * scale;
       let food: Feed | undefined, nearest = 380 * scale;
-      if (this.panicLeft <= 0 && dogDist > alertRadius * 0.85) for (const f of this.feed) {
+      if (!barking && pressureDist > alertRadius * 0.85) for (const f of this.feed) {
         const d = Math.hypot(f.x - s.x, f.y - s.y); if (d < nearest && f.amount > 0.015) { food = f; nearest = d; }
       }
-      if (this.panicLeft > 0 || dog && dogDist < alertRadius) {
+      if (barking || dog && pressureDist < alertRadius) {
         s.state = 'startled'; s.timer = 3;
-        const panic = this.panicLeft > 0, ox = panic ? this.panicX : dog!.x, oy = panic ? this.panicY : dog!.y;
-        const dx = s.x - ox, dy = s.y - oy, d = Math.hypot(dx, dy) || 1;
+        const dx = barking ? s.barkGoalX - s.x : s.x - dog!.x, dy = barking ? s.barkGoalY - s.y : s.y - dog!.y, d = Math.hypot(dx, dy) || 1;
         desiredX = dx / d; desiredY = dy / d;
         // Run along boundaries rather than piling every frightened sheep into a corner.
         const b = this.bounds, edge = 22 * scale;
         if ((s.x < b.left + edge && desiredX < 0) || (s.x > b.right - edge && desiredX > 0)) { desiredY += (s.y < (b.top + b.bottom) / 2 ? 1 : -1) * 0.8; desiredX *= 0.12; }
         if ((s.y < b.top + edge && desiredY < 0) || (s.y > b.bottom - edge && desiredY > 0)) { desiredX += (s.x < (b.left + b.right) / 2 ? 1 : -1) * 0.8; desiredY *= 0.12; }
-        speed = panic ? SPEEDS.sheepPanic * scale * (0.78 + s.courage * 0.16) : (17 + 7 * Math.max(0, 1 - dogDist / alertRadius)) * scale;
+        speed = barking ? Math.min(SPEEDS.sheepPanic * scale, d * 3) : (17 + 7 * Math.max(0, 1 - pressureDist / alertRadius)) * scale;
       } else if (food) {
         s.state = 'following'; s.goalX = food.x; s.goalY = food.y;
         if (nearest < 32 * scale) {
@@ -248,18 +263,11 @@ export class World {
         } else { desiredX = food.x - s.x; desiredY = food.y - s.y; speed = Math.min(SPEEDS.sheepFood, s.speed * 1.35) * scale; }
       } else {
         if (s.state === 'startled' || s.state === 'following') this.freshGrass(s);
-        const hx = s.x - herd.x, hy = s.y - herd.y, distance = Math.hypot(hx, hy);
-        if (this.sheep.length > 1 && distance > herd.radius) {
-          // Strays stroll back to the herd. Food and fear take precedence above.
-          s.state = 'walking'; s.timer = 12;
-          s.goalX = herd.x + hx / distance * herd.radius * 0.65;
-          s.goalY = herd.y + hy / distance * herd.radius * 0.65;
-        }
         if (s.state === 'grazing') {
           const mouthX = s.x + Math.cos(s.heading) * 25 * scale, mouthY = s.y + Math.sin(s.heading) * 25 * scale;
           const amount = this.pasture.bite(mouthX, mouthY, dt, 21 * scale);
           s.ate += amount; this.eaten += amount; s.hunger = Math.max(0, s.hunger - dt * 0.01); speed = 0;
-          if (this.pasture.at(mouthX, mouthY) < 0.14 || s.timer < 0) this.freshGrass(s);
+          if (this.pasture.edibleAt(mouthX, mouthY) < 0.25 || s.timer < 0) this.freshGrass(s);
         }
         if (s.state === 'walking') {
           const dx = s.goalX - s.x, dy = s.goalY - s.y;
@@ -282,7 +290,7 @@ export class World {
       }
       const hx = s.x - this.home.x, hy = s.y - this.home.y, hd = Math.hypot(hx, hy) || 1;
       if (hd < 70 * scale) { desiredX += hx / hd * 25 * scale; desiredY += hy / hd * 25 * scale; }
-      const cap = (this.panicLeft > 0 ? SPEEDS.sheepPanic : s.state === 'startled' ? SPEEDS.sheepChased : s.state === 'following' ? SPEEDS.sheepFood : SPEEDS.sheepWalk + 2) * scale;
+      const cap = (barking ? SPEEDS.sheepPanic : s.state === 'startled' ? SPEEDS.sheepChased : s.state === 'following' ? SPEEDS.sheepFood : SPEEDS.sheepWalk + 2) * scale;
       const desiredSpeed = Math.hypot(desiredX, desiredY);
       if (desiredSpeed > cap) { desiredX *= cap / desiredSpeed; desiredY *= cap / desiredSpeed; }
       const blend = 1 - Math.exp(-dt * (s.state === 'startled' ? 3.5 : 2));

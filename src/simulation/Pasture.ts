@@ -34,15 +34,29 @@ export class Pasture {
     return clamp(Math.floor(y / this.cellH), 0, this.rows - 1) * this.cols + clamp(Math.floor(x / this.cellW), 0, this.cols - 1);
   }
   at(x: number, y: number) { return this.grass[this.index(x, y)]; }
+  edibleAt(x: number, y: number) {
+    const i = this.index(x, y); return this.cropped[i] && this.grass[i] < 0.7 ? 0 : this.grass[i];
+  }
+  patchQuality(x: number, y: number, radius = 24) {
+    let sum = this.edibleAt(x, y) * 2;
+    for (let j = 0; j < 8; j++) { const a = j * Math.PI / 4; sum += this.edibleAt(x + Math.cos(a) * radius, y + Math.sin(a) * radius); }
+    return sum / 10;
+  }
   bite(x: number, y: number, dt: number, radius = 18) {
     let eaten = 0;
     for (let r = Math.max(0, Math.floor((y - radius) / this.cellH)); r <= Math.min(this.rows - 1, Math.floor((y + radius) / this.cellH)); r++) {
       for (let c = Math.max(0, Math.floor((x - radius) / this.cellW)); c <= Math.min(this.cols - 1, Math.floor((x + radius) / this.cellW)); c++) {
         const d = Math.hypot((c + 0.5) * this.cellW - x, (r + 0.5) * this.cellH - y);
         if (d >= radius) continue;
-        const i = r * this.cols + c, amount = Math.min(this.grass[i], dt * 0.055 * (1 - d / radius));
+        const i = r * this.cols + c;
+        if (this.cropped[i] && this.grass[i] < 0.7) continue;
+        const amount = Math.min(this.grass[i], dt * 0.055 * (1 - d / radius));
         this.grass[i] -= amount; eaten += amount;
-        if (this.grass[i] < 0.94) { this.cropped[i] = 1; this.recoverIn[i] = 90; }
+        if (this.grass[i] < 0.9) {
+          // A cut plant rests, then grows continuously through visible stages.
+          eaten += this.grass[i]; this.grass[i] = 0; this.cropped[i] = 1;
+          this.recoverIn[i] = 32 + hash3(c, r, 47) * 6;
+        }
       }
     }
     return eaten;
@@ -71,7 +85,7 @@ export class Pasture {
     const decay = Math.exp(-elapsed * 0.65);
     for (let i = 0; i < this.grass.length; i++) {
       if (this.recoverIn[i] > 0) this.recoverIn[i] = Math.max(0, this.recoverIn[i] - elapsed);
-      else this.grass[i] = Math.min(this.capacity[i], this.grass[i] + elapsed * 0.0009);
+      else this.grass[i] = Math.min(this.capacity[i], this.grass[i] + elapsed * 0.0032);
       if (this.grass[i] >= 0.985 && this.recoverIn[i] === 0) this.cropped[i] = 0;
       this.trampled[i] *= decay;
     }

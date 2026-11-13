@@ -30,12 +30,12 @@ All four actions can be used again immediately: **there are no cooldowns**.
 
 | Key | Ability | What happens |
 | --- | --- | --- |
-| **Q** | **Bark** | Every sheep flees from the dog's position for six seconds. Expanding ASCII rings carry the bark across the field. Recasting refreshes the escape. |
-| **W** | **Come By** | The dog exits to the outer boundary, then makes a complete lap around the padded envelope of **every** sheep, including edge strays. The route updates as the flock moves. |
+| **Q** | **Bark** | Nearby sheep within 300 px move about two body lengths (roughly 100 px) away over 2.4 seconds. Distant sheep keep grazing. ASCII rings carry the bark; recasting gives another short nudge. |
+| **W** | **Come By** | The dog joins a rounded, padded convex outline of **every** sheep, including edge strays, then makes a full lap. Curved ends and a short look-ahead avoid empty rectangular corners. The outline updates as the sheep move. |
 | **E** | **Sprint** | A short sprint toward its current destination. When idle, the dog sprints toward the cursor. |
 | **R** | **Recall / Release** | First press: return to the small fenced pen in the bottom-right corner. Next press: sprint all the way to the cursor, with no click required. The second press also works while the dog is on its way home. |
 
-The bottom-right dog button calls the dog, then offers the same recall/release action as R. An idle dog dozes after seven seconds and releases drifting `z`/`Z` glyphs. Movement or an ability wakes it immediately. A sleeping dog keeps a gentle 56 px personal-space radius. A moving dog influences a wider 112 px radius (145 px during a sprint). A recalled dog rests inside its pen.
+The bottom-right dog button calls the dog, then offers the same recall/release action as R. An idle dog dozes after seven seconds and releases drifting `z`/`Z` glyphs. Movement or an ability wakes it immediately. A sleeping dog keeps a gentle 56 px personal-space radius. A moving dog influences a wider 172 px radius (205 px during a sprint), and sheep anticipate its approach about half a second ahead. An awake stationary dog keeps a smaller 92 px zone. A recalled dog rests inside its pen. On arrival the dog keeps its last heading, including when it falls asleep.
 
 ## Feeding and other controls
 
@@ -57,17 +57,20 @@ Food is shared and slowly consumed, with up to ten handfuls lasting up to 120 se
 
 ## A gentler pace
 
-Ordinary sheep walk at 8–13 CSS pixels per second. Food attracts them at about 1.35 times that pace. Being chased raises their speed modestly, with a 26 px/s cap. Q is the deliberate exception: its six-second fright allows a sustained escape up to 64 px/s.
+Ordinary sheep walk at 8–13 CSS pixels per second. Food attracts them at about 1.35 times that pace. Being chased raises their speed modestly, with a 26 px/s cap. A bark briefly allows up to 46 px/s, toward a nearby escape destination rather than a screen edge.
 
-The dog walks at 62 px/s (previously 190), makes its outside lap at 94 px/s, sprints with E at 185 px/s, and launches from recall at 205 px/s. These speeds scale down on smaller screens. Grass is eaten about 71% more slowly than before, and sheep linger longer over each patch.
+The dog walks at 108 px/s, circles at 138 px/s, sprints with E at 235 px/s, and launches from recall at 255 px/s. These speeds scale down on smaller screens. Grazing keeps a slow bite rate. Cutting down a plant leaves a visible patch, so sheep move toward fresh grass.
 
 ## A living pasture
 
-Every visible grass cell starts fully grown and equally edible, including the center and edges. Sheep eat nearby cells while grazing. Fresh grass is light green; cropped grass becomes tiny dark green dots. Brown flecks are omitted. A cell stays visibly cropped after the first few nibbles and remains that way until nearly recovered. There is no decorative road or permanent bare terrain. Each newly cropped cell rests for 90 seconds after its last bite, then grows at one fifth of the previous rate (0.0009 per second). Lightly grazed patches remain visible for several minutes; completely depleted grass takes roughly 20 minutes to fill in. Space toggles a brush that restores every hovered patch immediately, including while paused; a continuous stroke fills the spaces between pointer events. Press Space again or Escape to finish.
+Every visible grass cell starts fully grown and edible. As sheep graze, a cut plant becomes bare charcoal ground, then gradually recovers through dots, low shoots, short blades, young grass and mature grass. Brightness increases within each stage. There are no brown flecks, roads or permanent bare patches.
 
-Sheep periodically compare nearby grass and crowding before moving to a fresh patch. Slow wind bends longer grass without random per-frame flickering. Temporary flattening recovers over a few seconds.
+A freshly cropped cell rests for 32–38 seconds, using stable per-cell variation of at most six seconds. After that, growth advances continuously at 0.0032 per second. Earlier-eaten patches normally recover first, so grazing history stays visible. Full recovery takes about five to six minutes; young shoots are left alone until they reach edible maturity. Space still toggles an immediate regrow brush, including while paused.
 
-Sheep have different sizes, speed, courage, wool texture and grazing rhythms. They naturally gather around their shared center in a loose flock, with a population-aware radius that fits the pasture. Strays walk back and favor fresh grass near the group. Food and fear override cohesion, so the dog can scatter the flock, which gradually gathers again when left alone. A wider personal-space zone and two passes of soft collision correction reduce piling up while permitting a little wool overlap. Heads and ears have their own rendering priority and are drawn after all bodies, so wool cannot hide another sheep’s face. A nearby dog interrupts grazing and pushes sheep away; neighbors share some of that movement. Bark triggers a sustained flock-wide escape. Come By follows the actual outside envelope instead of an average-radius circle, with an outside lane reserved for the dog at all pasture edges.
+Each sheep occasionally chooses zero, one or two nearby companions for 24–49 seconds. Their presence gives fresh grazing destinations a small preference, without a shared herd magnet. Sheep compare entire grass patches, travel distance, crowding and dog pressure; good fresh grass outweighs company. This supports loosely changing pairs and trios and independent grazers. They search farther when nearby ground is depleted.
+
+Sheep retain different sizes, speed, courage, wool texture and grazing rhythms. Soft personal space and positional correction reduce piling up while allowing a little wool overlap. Heads and ears keep rendering priority over other bodies. Moving dogs trigger an earlier, predictive response; sleeping dogs keep a gentle local space. Food and bark interrupt ordinary grazing. The dog's extended, articulated legs and brighter tail tip make its running gait clearer.
+
 
 The field uses ASCII Pond’s exact warm charcoal `#1a1917` (`DARK.page: [26, 25, 23]` in `src/pond.js`): only ASCII characters carry color, with no colored tile backgrounds on terrain or animals. Reinspection of ASCII Pond's `src/koi.js` supplied the exact `t%SX8@#` density ramp, with `#` densest. The bundled Geist Mono font, small character grid, restrained colors and local glyph textures carry its influence forward. The character grid and font are one-third smaller in both dimensions, giving each animal about 2.25 times as many character cells without shrinking its silhouette. Wool uses bright cream density glyphs and little legs. Enlarged outlined oval faces have two bright `O` eyes, separate ears, a nose and a mouth; faces keep priority over overlapping wool. The smaller collie has copper glyphs and a pale chest. The open recall pen uses ASCII rails and posts. No animal images, SVG sprites or emoji are used.
 
@@ -76,7 +79,9 @@ The field uses ASCII Pond’s exact warm charcoal `#1a1917` (`DARK.page: [26, 25
 ```text
 src/
   simulation/Pasture.ts   retained grass, consumption, regrowth and trampled paths
-  simulation/World.ts    sheep, food, movement, herding and ability clocks
+  simulation/World.ts    sheep, food, movement, local companions and ability clocks
+  simulation/route.ts    rounded flock envelopes and perimeter navigation
+  engine/grass.ts        gradual grass glyph and color stages
   engine/Renderer.ts     cached glyph atlas, grass, sheep, collie, rings and markers
   interaction/Controller.ts  pointer/touch, shortcuts, ability UI and flock controls
   vendor/pond-math.ts    attributed helpers reused from ASCII Pond
