@@ -199,14 +199,18 @@ export class Renderer {
       // A fixed side profile on the ground: head, beak, folded wing, tail and feet.
       const facing = Math.cos(b.heading) < 0 ? -1 : 1;
       const mirror: Record<string, string> = { '/': '\\', '\\': '/', '<': '>', '>': '<', '(': ')', ')': '(' };
-      const sprite = ['    __ ', '   /o_>', '  /%%) ', '<(%##) ', '  / |  '];
-      const priority = b.perchId === undefined ? 1 : 8;
-      const anchorX = (Math.floor(x / p.cellW) + 0.5) * p.cellW, anchorY = (Math.floor(b.y / p.cellH) + 0.5) * p.cellH;
+      const sprite = ['    __ ', '   /o_>', '  /%%) ', '<(%##) ', '  | |  '];
+      const perch = b.perchId === undefined ? undefined : w.fence.posts[b.perchId];
+      const anchorX = (Math.floor((perch?.x ?? x) / p.cellW) + 0.5) * p.cellW;
+      const anchorRow = perch ? Math.floor(perch.y / p.cellH) - 2 : Math.floor(b.y / p.cellH);
+      const anchorY = (anchorRow + 0.5) * p.cellH;
       for (let row = 0; row < sprite.length; row++) for (let col = 0; col < sprite[row].length; col++) {
         let glyph = sprite[row][col]; if (glyph === ' ') continue;
         const eye = row === 1 && col === 4, beak = row === 1 && col === 6, feet = row === 4;
         if (facing < 0) glyph = mirror[glyph] ?? glyph;
-        this.put(anchorX + (col - 2) * p.cellW * facing, anchorY + (row - 4) * p.cellH, glyph, eye ? 1 : feet ? 0.7 : 0.92, eye ? 3 : beak || feet ? 11 : family, priority);
+        // The body's center and the midpoint of its two bright legs share the
+        // anchor, including after mirroring. Landed birds stay above other ink.
+        this.put(anchorX + (col - 3) * p.cellW * facing, anchorY + (row - 4) * p.cellH, glyph, eye || feet ? 1 : 0.92, eye || feet ? 3 : beak ? 11 : family, 8);
       }
       return;
     }
@@ -256,11 +260,11 @@ export class Renderer {
       if (Math.abs(rail.a.y - rail.b.y) < 1) {
         const row = Math.floor(rail.a.y / p.cellH);
         for (let c = Math.floor(Math.min(rail.a.x, rail.b.x) / p.cellW); c <= Math.floor(Math.max(rail.a.x, rail.b.x) / p.cellW); c++)
-          this.put((c + 0.5) * p.cellW, (row + 0.5) * p.cellH, '-', 0.8, 7, 2);
+          this.put((c + 0.5) * p.cellW, (row + 0.5) * p.cellH, '-', 0.8, 5, 2);
       } else {
         const col = Math.floor(rail.a.x / p.cellW);
         for (let r = Math.floor(Math.min(rail.a.y, rail.b.y) / p.cellH); r <= Math.floor(Math.max(rail.a.y, rail.b.y) / p.cellH); r++)
-          this.put((col + 0.5) * p.cellW, (r + 0.5) * p.cellH, '|', 0.8, 7, 2);
+          this.put((col + 0.5) * p.cellW, (r + 0.5) * p.cellH, '|', 0.8, 5, 2);
       }
     }
     const door = gateLeaf(b, w.gateOpen), dx = door.b.x - door.a.x, dy = door.b.y - door.a.y;
@@ -332,7 +336,6 @@ export class Renderer {
     }
     for (const bark of w.barks) this.barkRipple(bark);
     this.pen();
-    for (const b of w.birds) if (b.state === 'landed' && b.perchId === undefined) this.bird(b);
     const animals = w.animals;
     for (const s of animals) this.sheep(s);
     this.dog();
@@ -341,7 +344,8 @@ export class Renderer {
     this.sleep();
     this.barkComic();
     for (const b of w.birds) if (b.state !== 'landed') this.bird(b);
-    // A perched silhouette stays readable above posts, animals and effects.
+    // Both legs survive grass, animals and effects; perched visitors draw last.
+    for (const b of w.birds) if (b.state === 'landed' && b.perchId === undefined) this.bird(b);
     for (const b of w.birds) if (b.state === 'landed' && b.perchId !== undefined) this.bird(b);
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); ctx.fillStyle = BG; if (this.repaintAll) ctx.fillRect(0, 0, w.width, w.height); ctx.imageSmoothingEnabled = false;
     for (let i = 0; i < this.codes.length; i++) {

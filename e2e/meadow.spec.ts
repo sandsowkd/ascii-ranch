@@ -147,7 +147,7 @@ test('colorful visitors land in the meadow, take off near the dog, and appear wi
     for (let row = 0; row < p.rows; row++) for (let col = 0; col < p.cols; col++) {
       const cell = app.renderer.cellAt((col + 0.5) * p.cellW, (row + 0.5) * p.cellH);
       if (cell.family >= 9) colored++;
-      if (bird && cell.priority === 1 && Math.hypot((col + 0.5) * p.cellW - bird.x, (row + 0.5) * p.cellH - bird.y) < 50) {
+      if (bird && cell.priority === 8 && Math.hypot((col + 0.5) * p.cellW - bird.x, (row + 0.5) * p.cellH - bird.y) < 50) {
         profileRows.add(row); if (cell.glyph === 'o') eyeRow = row; if (cell.glyph === '#') wingRow = row;
       }
     }
@@ -404,4 +404,36 @@ test('the compact pen has a working left gate for release and recall', async ({ 
   const home = await state(page); expect(home.dog.atHome).toBe(true); expect(home.gateOpen).toBe(0);
   expect(home.dog.x).toBe(home.home.x); expect(home.dog.y).toBe(home.home.y);
   await page.screenshot({ path: `docs/${info.project.name}-pen-gate.png` });
+});
+
+test('wooden rails stay brown and landed birds show two bright centered legs in both directions', async ({ page }, info) => {
+  const result = await page.evaluate(() => {
+    const app = (window as any).__meadow, w = app.world, r = app.renderer, p = w.pasture;
+    w.reset(0); w.toggleDog(); w.paused = true; r.render();
+    const rails = w.fence.rails.map((rail: any) => r.cellAt(rail.a.x + (rail.b.x - rail.a.x) / 3, rail.a.y + (rail.b.y - rail.a.y) / 3).family);
+    const post = w.fence.posts[1], cases: any[] = [];
+    for (const perched of [false, true]) for (const heading of [0, Math.PI]) for (const color of [0, 1, 2]) {
+      const x = perched ? post.x : w.width * 0.4, y = perched ? post.y - 2 * p.cellH : w.height * 0.4;
+      const col = Math.floor(x / p.cellW), row = perched ? Math.floor(post.y / p.cellH) - 2 : Math.floor(y / p.cellH);
+      const bird = { id: 800, x, y, heading, phase: 0, state: 'landed', age: 0, altitude: 0,
+        landingX: x, landingY: y, exitX: 0, exitY: 0, restFor: 10, color, perchId: perched ? 1 : undefined };
+      w.birdLife.birds = [bird, { ...bird, id: 801, perchId: undefined, state: 'arriving' }];
+      // Both a moving bird and the dog's coat would cover the feet at lower priority.
+      Object.assign(w.dog, { x, y, heading: 0, atHome: false }); r.render();
+      const legs = [-1, 1].map(dc => r.cellAt((col + dc + 0.5) * p.cellW, (row + 0.5) * p.cellH));
+      const cols: number[] = [];
+      for (let dr = -4; dr <= 0; dr++) for (let dc = -4; dc <= 4; dc++)
+        if (r.cellAt((col + dc + 0.5) * p.cellW, (row + dr + 0.5) * p.cellH).priority === 8) cols.push(col + dc);
+      cases.push({ perched, heading, color, legs, centered: Math.min(...cols) + Math.max(...cols) === col * 2 });
+    }
+    w.dog = null; w.birdLife.birds.length = 1; r.render();
+    return { rails, cases };
+  });
+  expect(result.rails).toEqual([5, 5, 5]);
+  for (const c of result.cases) {
+    expect(c.centered).toBe(true);
+    expect(c.legs).toHaveLength(2);
+    for (const leg of c.legs) expect(leg).toMatchObject({ glyph: '|', family: 3, level: 31, priority: 8 });
+  }
+  await page.screenshot({ path: `docs/${info.project.name}-bird-legs.png` });
 });

@@ -6,7 +6,7 @@ Verified on November 13, 2026.
 | --- | --- |
 | Production build | Strict TypeScript + Vite build passed |
 | Simulation tests | 60 passing |
-| Browser checks | 39 passing, desktop and mobile Chromium |
+| Browser checks | 41 passing, desktop and mobile Chromium |
 | Touch-only desktop check | Intentionally skipped; tested on the mobile project |
 | Runtime errors | None observed in browser checks |
 | Full-screen character field | Canvas fills the viewport; more than 94% of sampled cell interiors contain ink |
@@ -33,3 +33,5 @@ These are samples from this computer, not a hardware-independent FPS guarantee. 
 The compact pen is now 120 × 72 px before responsive scaling, 20% taller than the earlier 2:1 version. Ordinary rails and the gate use a single character stroke, with lighter ink; the chunky posts retain their existing size. Six posts give four corners and one intermediate post on each long side, with none on the short sides. The left gate swings open before release or entry and closes after the dog is clear or resting at home. Passage follows a horizontal centerline so the smaller pen clears the dog’s entire silhouette. Desktop/mobile simulation checks cover full exit, closed-gate field travel, recall, reversing a release into recall, re-release and resizing a resting dog. Browser checks verify the initial closed door, its ink disappearing from the entrance as it swings open, cursor release, re-closing after exit and a completed recall with the door closed. The dog starts at home and R releases it immediately. Perched birds retain their highest rendering priority.
 
 `compact-pen-detail.png` shows the smaller rectangle and closed door. `pen-gate-open-detail.png` shows an actual release through the open gate. Full desktop/mobile captures are saved in `*-pen-gate.png` and `*-pen-gate-open.png`.
+
+Fence rails now share the warm wood palette of the gate and posts, including the right rail. Landed birds have two distinct, full-brightness white vertical legs at the highest drawing priority. Their body and foot anchors are centered on the post grid column before mirroring. Desktop/mobile checks cover both facings, all three colors, ground and perched poses, and deliberate overlap by the dog and a flying bird. `bird-feet-and-perches.png` shows a ground bird and two oppositely facing birds centered on posts; their positions were arranged for this rendering inspection.
