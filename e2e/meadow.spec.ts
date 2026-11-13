@@ -5,7 +5,7 @@ test.beforeEach(async ({ page }) => { await page.goto('/?debug'); await page.eva
 
 test('living grass, grazing sheep, full canvas and no errors', async ({ page }, info) => {
   const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
-  const before = await state(page); expect(before.count).toBe(18); expect(before.cols * before.cellW).toBeGreaterThanOrEqual(before.width); expect(before.rows * before.cellH).toBeGreaterThanOrEqual(before.height);
+  const before = await state(page); expect(before.count).toBe(18); expect(before.dog.atHome).toBe(true); expect(before.dog.arrived).toBe(true); expect(before.dog.x).toBe(before.home.x); expect(before.dog.y).toBe(before.home.y); expect(before.cols * before.cellW).toBeGreaterThanOrEqual(before.width); expect(before.rows * before.cellH).toBeGreaterThanOrEqual(before.height);
   const box = await page.locator('canvas').boundingBox(); expect(box?.width).toBe(before.width); expect(box?.height).toBe(before.height);
   await expect.poll(async () => (await state(page)).eaten).toBeGreaterThan(before.eaten + 0.1);
   await expect.poll(async () => (await state(page)).time).toBeGreaterThan(2);
@@ -57,7 +57,7 @@ test('single right-clicks feed without calling or redirecting the dog; flock con
   await page.reload(); expect((await state(page)).count).toBe(19);
   await page.getByRole('button', { name: 'Remove a sheep', exact: true }).click(); expect((await state(page)).count).toBe(18);
   await page.mouse.click(first.width * 0.5, first.height * 0.4, { button: 'right' });
-  expect((await state(page)).feed.length).toBe(1); expect((await state(page)).dog).toBeNull();
+  expect((await state(page)).feed.length).toBe(1); expect((await state(page)).dog.atHome).toBe(true);
   await page.mouse.click(first.width * 0.7, first.height * 0.4); const commanded = await state(page);
   await page.mouse.click(first.width * 0.4, first.height * 0.45, { button: 'right' }); const fed = await state(page);
   expect(fed.feed.length).toBe(2); expect(fed.dog.targetX).toBe(commanded.dog.targetX); expect(fed.dog.targetY).toBe(commanded.dog.targetY);
@@ -73,7 +73,7 @@ test('pause, help, reset, keyboard visibility, reduced motion and resize', async
   await page.locator('#pause').click(); await page.keyboard.press('h'); await expect(page.locator('body')).toHaveClass(/hide-ui/); await page.keyboard.press('h');
   await page.setViewportSize({ width: 580, height: 760 }); await expect.poll(async () => (await state(page)).width).toBe(580);
   expect((await state(page)).count).toBe(18);
-  await page.locator('#reset').click(); expect((await state(page)).feed.length).toBe(0); expect((await state(page)).dog).toBeNull();
+  await page.locator('#reset').click(); expect((await state(page)).feed.length).toBe(0); expect((await state(page)).dog.atHome).toBe(true);
   await page.emulateMedia({ reducedMotion: 'reduce' }); await page.reload(); expect((await state(page)).paused).toBe(true);
 });
 
@@ -153,7 +153,7 @@ test('colorful visitors land in the meadow, take off near the dog, and appear wi
     }
     return { bird, colored, lambs: w.lambs.length, profileRows: profileRows.size, eyeAboveWing: eyeRow < wingRow };
   });
-  expect(landed.bird).toBeTruthy(); expect(landed.colored).toBeGreaterThan(3); expect(landed.lambs).toBe(3); expect(landed.profileRows).toBe(4); expect(landed.eyeAboveWing).toBe(true);
+  expect(landed.bird).toBeTruthy(); expect(landed.colored).toBeGreaterThan(3); expect(landed.lambs).toBe(3); expect(landed.profileRows).toBe(5); expect(landed.eyeAboveWing).toBe(true);
   await page.screenshot({ path: `docs/${info.project.name}-families.png` });
   const departing = await page.evaluate(() => {
     const app = (window as any).__meadow, w = app.world, bird = w.birds.find((b: any) => b.state === 'landed');
@@ -204,7 +204,7 @@ test('Space toggles a continuous hover regrow brush; P pauses independently', as
   expect((await state(page)).regrowMode).toBe(false);
   expect(await page.evaluate(({ x, y }) => (window as any).__meadow.world.pasture.at(x, y + 80), { x, y })).toBe(0);
   await page.keyboard.press('p'); expect((await state(page)).paused).toBe(false);
-  expect((await state(page)).dog).toBeNull(); expect((await state(page)).feed).toHaveLength(0);
+  expect((await state(page)).dog.atHome).toBe(true); expect((await state(page)).feed).toHaveLength(0);
 });
 
 test('terrain matches Pond charcoal; bare grass rests on charcoal before growing through stages', async ({ page }, info) => {
@@ -279,7 +279,7 @@ test('regrowth gains characters and color gradually, and running dogs have tucke
     for (let r = 0; r < p.rows; r++) for (let c = 0; c < p.cols; c++) p.grass[r * p.cols + c] = amounts[Math.min(5, Math.floor(c / p.cols * 6))];
     app.renderer.render();
     const stages = amounts.map((_, j) => app.renderer.cellAt((j + 0.5) / 6 * w.width, w.height * 0.4));
-    w.toggleDog(); const d = w.dog, x = w.width * 0.5, y = w.height * 0.4;
+    if (!w.dog) w.toggleDog(); const d = w.dog, x = w.width * 0.5, y = w.height * 0.4;
     Object.assign(d, { x, y, targetX: x + 100, targetY: y, heading: 0, vx: 108, vy: 0 }); w.time = 0.25;
     app.renderer.render(); let tail = 0, feet = 0;
     for (let r = 0; r < p.rows; r++) for (let c = 0; c < p.cols; c++) {
@@ -354,10 +354,22 @@ test('the dog starts inside a thick posted pen, opens its mouth to bark, and bir
     const bird = w.birds.find((b: any) => b.state === 'landed' && b.perchId !== undefined), post = bird && w.fence.posts[bird.perchId];
     const perched = !!bird && Math.abs(bird.x - post.x) < 1 && Math.abs(bird.y - (post.y - 2 * p.cellH)) < 1;
     w.toggleDog(); w.dog.barkAge = 0.12; w.paused = true; r.render();
-    return { closed, open, quiet, inside, postInk, postCount: w.fence.posts.length, perched };
+    const perchCells: { x: number; y: number; glyph: string; family: number }[] = [];
+    for (let row = 0; row < p.rows; row++) for (let col = 0; col < p.cols; col++) {
+      const x = (col + 0.5) * p.cellW, y = (row + 0.5) * p.cellH, cell = r.cellAt(x, y);
+      if (cell.priority === 8) perchCells.push({ x, y, glyph: cell.glyph, family: cell.family });
+    }
+    const homeDog = { ...w.dog };
+    Object.assign(w.dog, { x: bird.x, y: bird.y - 2 * p.cellH });
+    w.birds.push({ ...bird, id: 999, perchId: undefined, state: 'arriving', altitude: 0 }); r.render();
+    const visibleAboveEverything = perchCells.length > 15 && perchCells.every(q => {
+      const cell = r.cellAt(q.x, q.y); return cell.priority === 8 && cell.glyph === q.glyph && cell.family === q.family;
+    });
+    w.birds.pop(); Object.assign(w.dog, homeDog); r.render();
+    return { closed, open, quiet, inside, postInk, postCount: w.fence.posts.length, perched, visibleAboveEverything };
   });
   expect(result.inside).toBe(true); expect(result.closed.eyes).toBe(2); expect(result.closed.nose).toBeGreaterThan(0);
-  expect(result.postInk).toBe(result.postCount); expect(result.postCount).toBeGreaterThan(8);
-  expect(result.open.eyes).toBeGreaterThan(result.closed.eyes); expect(result.open.word).toBe('WOOF!'); expect(result.quiet.word).toBe(''); expect(result.perched).toBe(true);
+  expect(result.postInk).toBe(result.postCount); expect(result.postCount).toBe(7);
+  expect(result.open.eyes).toBeGreaterThan(result.closed.eyes); expect(result.open.word).toBe('WOOF!'); expect(result.quiet.word).toBe(''); expect(result.perched).toBe(true); expect(result.visibleAboveEverything).toBe(true);
   await page.screenshot({ path: `docs/${info.project.name}-pen-bark.png` });
 });

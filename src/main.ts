@@ -7,6 +7,7 @@ let count = 18;
 try { const saved = localStorage.getItem('ascii-meadow.count.v1'); if (saved !== null && Number.isFinite(Number(saved))) count = Math.max(0, Math.min(80, Math.round(Number(saved)))); } catch { /* optional storage */ }
 const canvas = document.querySelector<HTMLCanvasElement>('#meadow')!;
 const world = new World(Math.max(200, innerWidth), Math.max(300, innerHeight), count);
+world.toggleDog();
 const renderer = new Renderer(canvas, world);
 const controller = new Controller(canvas, world, renderer);
 const resize = new ResizeObserver(() => { world.resize(Math.max(200, innerWidth), Math.max(300, innerHeight)); renderer.resize(); renderer.render(); });

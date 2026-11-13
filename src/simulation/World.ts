@@ -56,7 +56,7 @@ export class World {
   }
   get pen(): Rect {
     const right = this.width - 32 * this.scale, bottom = this.dogBounds.bottom - 5 * this.scale;
-    return { left: right - 164 * this.scale, right, top: bottom - 180 * this.scale, bottom };
+    return { left: right - 128 * this.scale, right, top: bottom - 128 * this.scale, bottom };
   }
   get fence() {
     if (!this.fenceCache || this.fenceCache.width !== this.width || this.fenceCache.height !== this.height)

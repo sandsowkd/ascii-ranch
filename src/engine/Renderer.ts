@@ -197,13 +197,14 @@ export class Renderer {
       // A fixed side profile on the ground: head, beak, folded wing, tail and feet.
       const facing = Math.cos(b.heading) < 0 ? -1 : 1;
       const mirror: Record<string, string> = { '/': '\\', '\\': '/', '<': '>', '>': '<', '(': ')', ')': '(' };
-      const sprite = ['    _ ', '   /o>', '<(%#) ', '  /|  '];
+      const sprite = ['    __ ', '   /o_>', '  /%%) ', '<(%##) ', '  / |  '];
+      const priority = b.perchId === undefined ? 1 : 8;
       const anchorX = (Math.floor(x / p.cellW) + 0.5) * p.cellW, anchorY = (Math.floor(b.y / p.cellH) + 0.5) * p.cellH;
       for (let row = 0; row < sprite.length; row++) for (let col = 0; col < sprite[row].length; col++) {
         let glyph = sprite[row][col]; if (glyph === ' ') continue;
-        const eye = row === 1 && col === 4, beak = row === 1 && col === 5, feet = row === 3;
+        const eye = row === 1 && col === 4, beak = row === 1 && col === 6, feet = row === 4;
         if (facing < 0) glyph = mirror[glyph] ?? glyph;
-        this.put(anchorX + (col - 2) * p.cellW * facing, anchorY + (row - 3) * p.cellH, glyph, eye ? 1 : feet ? 0.7 : 0.92, eye ? 3 : beak || feet ? 11 : family, 1);
+        this.put(anchorX + (col - 2) * p.cellW * facing, anchorY + (row - 4) * p.cellH, glyph, eye ? 1 : feet ? 0.7 : 0.92, eye ? 3 : beak || feet ? 11 : family, priority);
       }
       return;
     }
@@ -321,7 +322,7 @@ export class Renderer {
     }
     for (const bark of w.barks) this.barkRipple(bark);
     this.pen();
-    for (const b of w.birds) if (b.state === 'landed') this.bird(b);
+    for (const b of w.birds) if (b.state === 'landed' && b.perchId === undefined) this.bird(b);
     const animals = w.animals;
     for (const s of animals) this.sheep(s);
     this.dog();
@@ -330,6 +331,8 @@ export class Renderer {
     this.sleep();
     this.barkComic();
     for (const b of w.birds) if (b.state !== 'landed') this.bird(b);
+    // A perched silhouette stays readable above posts, animals and effects.
+    for (const b of w.birds) if (b.state === 'landed' && b.perchId !== undefined) this.bird(b);
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); ctx.fillStyle = BG; if (this.repaintAll) ctx.fillRect(0, 0, w.width, w.height); ctx.imageSmoothingEnabled = false;
     for (let i = 0; i < this.codes.length; i++) {
       // Retain unchanged grass pixels. Snap cell edges to device pixels so erasing

@@ -117,7 +117,8 @@ describe('forward grazing and a physical recall pen', () => {
   });
   it('spawns inside the pen and uses the gate for exit and recall without clipping rails', () => {
     const w = new World(1200, 900, 0); w.toggleDog();
-    expect(w.dog!.x).toBe(w.home.x); expect(w.dog!.y).toBe(w.home.y); expect(w.dog!.atHome).toBe(true); expect(w.fence.posts.length).toBeGreaterThan(8);
+    expect(w.dog!.x).toBe(w.home.x); expect(w.dog!.y).toBe(w.home.y); expect(w.dog!.atHome).toBe(true); expect(w.fence.posts).toHaveLength(7);
+    expect((w.pen.right - w.pen.left) * (w.pen.bottom - w.pen.top)).toBeLessThan(164 * 180 * 0.6);
     const safe = () => { for (const o of w.fence.obstacles) expect(Math.hypot(w.dog!.x - o.x, w.dog!.y - o.y)).toBeGreaterThanOrEqual(o.radius - 0.1); };
     w.sendDog(300, 300);
     for (let i = 0; i < 900; i++) { w.step(1 / 60); safe(); }

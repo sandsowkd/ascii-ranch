@@ -27,7 +27,7 @@ export class Controller {
     document.querySelector('#feed-button')!.addEventListener('click', () => this.toggleFeed(), opts);
     document.querySelector('#regrow-button')!.addEventListener('click', () => this.toggleRegrow(), opts);
     document.querySelector('#pause')!.addEventListener('click', () => this.setPaused(!world.paused), opts);
-    document.querySelector('#reset')!.addEventListener('click', () => { this.cancel(); world.reset(); this.sync(); renderer.render(); this.toast('a fresh patch of green.'); }, opts);
+    document.querySelector('#reset')!.addEventListener('click', () => { this.cancel(); world.reset(); world.toggleDog(); this.sync(); renderer.render(); this.toast('a fresh patch of green.'); }, opts);
     document.querySelector('#help-toggle')!.addEventListener('click', () => {
       const el = document.querySelector<HTMLElement>('#help')!; el.hidden = !el.hidden;
       document.querySelector('#help-toggle')!.setAttribute('aria-expanded', String(!el.hidden));
