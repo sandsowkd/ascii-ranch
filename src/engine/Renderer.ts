@@ -8,7 +8,7 @@ import type { Sheep, World } from '../simulation/World';
  * Math helpers and density ramp derive from stqfdyr/ascii-pond (MIT).
  * Copyright (c) 2026 stqfdyr; public/licenses/ascii-pond-MIT.txt. */
 
-const GLYPHS = " tSX" + ".,:;'`|/\\v!+*ox@O%#8-=~^<>()[]zZY";
+const GLYPHS = " tSX" + ".,:;'`|/\\v!+*ox@O%#8-=~^<>()[]zZY_";
 export const BG = '#1a1917';
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
@@ -95,16 +95,17 @@ export class Renderer {
     return;
     }
     const nibble = s.state === 'grazing' || s.state === 'following' && Math.hypot(s.vx, s.vy) < 3 ? Math.sin(w.time * 5 + s.phase) * 2.5 : 0;
-    const hx = s.x + dx * (rx + 11 * scale + nibble), hy = s.y + dy * (rx + 11 * scale + nibble);
+    const headScale = scale * 0.8;
+    const hx = s.x + dx * (rx + 11 * headScale + nibble), hy = s.y + dy * (rx + 11 * headScale + nibble);
     // One closed silhouette joins the face and floppy ears. A full cell of white
     // around the dark interior stays continuous even on the smaller character grid.
     const shape = (x: number, y: number) => {
-      const ox = x - hx, oy = y - hy, along = (ox * dx + oy * dy) / scale, side = Math.abs((ox * sx + oy * sy) / scale);
+      const ox = x - hx, oy = y - hy, along = (ox * dx + oy * dy) / headScale, side = Math.abs((ox * sx + oy * sy) / headScale);
       const face = (along / 16) ** 2 + (side / 14) ** 2 - 1;
       const ear = ((along + 8 + (side - 14) * 0.35) / 6) ** 2 + ((side - 20) / 8) ** 2 - 1;
       return Math.min(face, ear);
     };
-    const headR = 33 * scale;
+    const headR = 33 * headScale;
     for (let r = Math.floor((hy - headR) / p.cellH); r <= Math.ceil((hy + headR) / p.cellH); r++) for (let c = Math.floor((hx - headR) / p.cellW); c <= Math.ceil((hx + headR) / p.cellW); c++) {
       const x = (c + 0.5) * p.cellW, y = (r + 0.5) * p.cellH;
       if (shape(x, y) > 0) continue;
@@ -114,13 +115,13 @@ export class Renderer {
       this.put(x, y, rim ? lineGlyph(-ny, nx) : ':', rim ? 1 : 0.32, rim ? 3 : 8, rim ? 3 : 2);
     }
     for (const side of [-1, 1]) {
-      this.put(hx - dx * 12.5 * scale + sx * side * 26.5 * scale, hy - dy * 12.5 * scale + sy * side * 26.5 * scale, side < 0 ? '(' : ')', 1, 3, 3);
-      this.put(hx - dx * 3 * scale + sx * side * 7.5 * scale, hy - dy * 3 * scale + sy * side * 7.5 * scale, 'O', 1, 3, 4);
+      this.put(hx - dx * 12.5 * headScale + sx * side * 26.5 * headScale, hy - dy * 12.5 * headScale + sy * side * 26.5 * headScale, side < 0 ? '(' : ')', 1, 3, 3);
+      this.put(hx - dx * 3 * headScale + sx * side * 7.5 * headScale, hy - dy * 3 * headScale + sy * side * 7.5 * headScale, 'O', 1, 3, 4);
     }
     // Woolly forelock, two nostrils and a split lip distinguish the long sheep muzzle.
-    this.put(hx - dx * 12 * scale, hy - dy * 12 * scale, '@', 0.95, 2, 3);
-    for (const side of [-1, 1]) this.put(hx + dx * 9 * scale + sx * side * 3 * scale, hy + dy * 9 * scale + sy * side * 3 * scale, '.', 0.35, 8, 3);
-    this.put(hx + dx * 14 * scale, hy + dy * 14 * scale, 'Y', 0.88, 2, 3);
+    this.put(hx - dx * 12 * headScale, hy - dy * 12 * headScale, '@', 0.95, 2, 3);
+    for (const side of [-1, 1]) this.put(hx + dx * 9 * headScale + sx * side * 3 * headScale, hy + dy * 9 * headScale + sy * side * 3 * headScale, '.', 0.35, 8, 3);
+    this.put(hx + dx * 14 * headScale, hy + dy * 14 * headScale, 'Y', 0.88, 2, 3);
 
   }
   private stroke(x1: number, y1: number, x2: number, y2: number, level: number, family: number) {
@@ -133,15 +134,20 @@ export class Renderer {
     if (!d) return;
     const p = w.pasture, scale = w.scale, dx = Math.cos(d.heading), dy = Math.sin(d.heading), sx = -dy, sy = dx;
     const rx = 22 * scale, ry = 11.5 * scale, speed = Math.hypot(d.vx, d.vy);
-    // Draw short legs first, so the coat covers their roots and only paws peek below.
-    for (const front of [-1, 1]) for (const side of [-1, 1]) {
-      const stride = Math.sin(w.time * (d.sprint > 0 || d.launching ? 25 : 18) + (front === side ? 0 : Math.PI));
-      const f = front * (12 + Math.abs(dy) * 4) * scale, kick = speed > 3 ? stride * 2.6 * scale : 0;
-      const hipX = d.x + dx * f + sx * side * 6 * scale, hipY = d.y + dy * f + sy * side * 6 * scale;
-      const kneeX = d.x + dx * (f + kick * 0.45) + sx * side * 7 * scale, kneeY = d.y + dy * (f + kick * 0.45) + sy * side * 7 * scale + 2.5 * scale;
-      const footX = d.x + dx * (f + kick) + sx * side * 8.5 * scale, footY = d.y + dy * (f + kick) + sy * side * 8.5 * scale + 5 * scale;
-      this.stroke(hipX, hipY, kneeX, kneeY, 0.65, 4); this.stroke(kneeX, kneeY, footX, footY, 0.6, 4);
-      this.put(footX, footY, '.', 0.55, 3);
+    // The near paws drop vertically below the rotated coat. The far pair is hidden.
+    // Keeping each stroke at one x coordinate prevents sideways legs at every heading.
+    const extentX = Math.hypot(rx * dx, ry * sx);
+    const bodyA = dx * dx / (rx * rx) + sx * sx / (ry * ry);
+    const bodyB = dx * dy / (rx * rx) + sx * sy / (ry * ry);
+    const bodyC = dy * dy / (rx * rx) + sy * sy / (ry * ry);
+    for (const side of [-1, 1]) {
+      const offsetX = side * extentX * 0.52;
+      const edgeY = d.y + (-bodyB * offsetX + Math.sqrt(Math.max(0, bodyC - (bodyA * bodyC - bodyB * bodyB) * offsetX * offsetX))) / bodyC;
+      const stride = Math.sin(w.time * (d.sprint > 0 || d.launching ? 25 : 18) + (side < 0 ? Math.PI : 0));
+      const lift = speed > 3 ? Math.max(0, stride) * 2 * scale : 0;
+      const pawX = d.x + offsetX, pawY = edgeY + 5.5 * scale - lift;
+      this.stroke(pawX, edgeY - 3 * scale, pawX, pawY, 0.6, 4);
+      this.put(pawX, pawY, '.', 0.55, 3);
     }
     for (let r = Math.floor((d.y - rx) / p.cellH); r <= Math.ceil((d.y + rx) / p.cellH); r++) for (let c = Math.floor((d.x - rx) / p.cellW); c <= Math.ceil((d.x + rx) / p.cellW); c++) {
       const x = (c + 0.5) * p.cellW, y = (r + 0.5) * p.cellH, ox = x - d.x, oy = y - d.y;
@@ -177,24 +183,37 @@ export class Renderer {
     this.put(d.x + 10, d.y - 25 * scale, ']', 0.5, 4);
   }
   private bird(b: Bird) {
-    const w = this.world, scale = w.scale, flying = b.state !== 'landed';
-    const x = b.x, y = b.y - b.altitude * 28 * scale;
-    const dx = Math.cos(b.heading), dy = Math.sin(b.heading), sx = -dy, sy = dx;
-    const family = 9 + b.color, priority = flying ? 5 : 1;
-    const dot = (along: number, side: number, glyph: string, level = 0.9, ink = family) => this.put(x + (dx * along + sx * side) * scale, y + (dy * along + sy * side) * scale, glyph, level, ink, priority);
+    const w = this.world, p = w.pasture, scale = w.scale, flying = b.state !== 'landed';
+    const x = b.x, y = b.y - b.altitude * 28 * scale, family = 9 + b.color;
     if (!flying) {
-      dot(-2, -6, '.', 0.8, 5); dot(-2, 6, '.', 0.8, 5);
-    }
-    dot(-5, 0, '%'); dot(0, 0, '#'); dot(1, -4, ':', 0.7); dot(1, 4, ':', 0.7);
-    const peck = flying ? 0 : Math.max(0, Math.sin(w.time * 3 + b.phase)) * 3;
-    dot(8 + peck, 0, 'o', 0.96); dot(13 + peck, 0, dx < 0 ? '<' : '>', 0.9, 11);
-    dot(-12, 0, '~', 0.7); dot(-17, 0, '-', 0.5);
-    if (flying) {
-      const flap = Math.sin(w.time * 19 + b.phase), span = 7 + Math.abs(flap) * 13;
-      for (const side of [-1, 1]) for (let j = 1; j <= 3; j++) {
-        dot(-j * 2, side * span * j / 3, lineGlyph(sx * side * span - dx * 6, sy * side * span - dy * 6), 1 - j * 0.09);
+      // A fixed side profile on the ground: head, beak, folded wing, tail and feet.
+      const facing = Math.cos(b.heading) < 0 ? -1 : 1;
+      const mirror: Record<string, string> = { '/': '\\', '\\': '/', '<': '>', '>': '<', '(': ')', ')': '(' };
+      const sprite = ['    _ ', '   /o>', '<(%#) ', '  /|  '];
+      const anchorX = (Math.floor(x / p.cellW) + 0.5) * p.cellW, anchorY = (Math.floor(b.y / p.cellH) + 0.5) * p.cellH;
+      for (let row = 0; row < sprite.length; row++) for (let col = 0; col < sprite[row].length; col++) {
+        let glyph = sprite[row][col]; if (glyph === ' ') continue;
+        const eye = row === 1 && col === 4, beak = row === 1 && col === 5, feet = row === 3;
+        if (facing < 0) glyph = mirror[glyph] ?? glyph;
+        this.put(anchorX + (col - 2) * p.cellW * facing, anchorY + (row - 3) * p.cellH, glyph, eye ? 1 : feet ? 0.7 : 0.92, eye ? 3 : beak || feet ? 11 : family, 1);
       }
+      return;
     }
+    const dx = Math.cos(b.heading), dy = Math.sin(b.heading), sx = -dy, sy = dx;
+    const flap = Math.sin(w.time * 19 + b.phase), span = (12 + Math.abs(flap) * 15) * scale;
+    const radius = 33 * scale;
+    // Filled tapering wings retain a broad shoulder instead of a single skinny line.
+    for (let row = Math.floor((y - radius) / p.cellH); row <= Math.ceil((y + radius) / p.cellH); row++) for (let col = Math.floor((x - radius) / p.cellW); col <= Math.ceil((x + radius) / p.cellW); col++) {
+      const px = (col + 0.5) * p.cellW, py = (row + 0.5) * p.cellH, ox = px - x, oy = py - y;
+      const along = ox * dx + oy * dy, side = Math.abs(ox * sx + oy * sy), t = side / span;
+      const center = (-2 - t * 7 - flap * t * 2) * scale, halfWidth = (8 * (1 - t) + 2) * scale;
+      if (side < 3 * scale || t > 1 || Math.abs(along - center) > halfWidth) continue;
+      this.put(px, py, t < 0.6 ? '%' : lineGlyph(sx, sy), 0.95 - t * 0.2, family, 5);
+    }
+    const dot = (along: number, side: number, glyph: string, level = 0.9, ink = family) => this.put(x + (dx * along + sx * side) * scale, y + (dy * along + sy * side) * scale, glyph, level, ink, 5);
+    dot(-5, 0, '%'); dot(0, 0, '#'); dot(1, -4, ':', 0.7); dot(1, 4, ':', 0.7);
+    dot(8, 0, 'o', 0.96, 3); dot(13, 0, dx < 0 ? '<' : '>', 0.9, 11);
+    dot(-12, 0, '~', 0.7); dot(-17, 0, '-', 0.5);
   }
   private ring(x: number, y: number, radius: number, strength: number, family: number) {
     const p = this.world.pasture, band = p.cellW * 1.15;

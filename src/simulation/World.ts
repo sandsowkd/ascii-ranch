@@ -197,6 +197,15 @@ export class World {
     const count = this.random() < 0.22 ? 0 : this.random() < 0.6 ? 1 : 2;
     s.companions = nearby.slice(0, count).map(o => o.id); s.socialTimer = 24 + this.random() * 25;
   }
+  private birdPenalty(x: number, y: number) {
+    let penalty = 0;
+    for (const b of this.birds) {
+      if (b.state === 'departing') continue;
+      const bx = b.state === 'arriving' ? b.landingX : b.x, by = b.state === 'arriving' ? b.landingY : b.y;
+      penalty += Math.max(0, 1 - Math.hypot(x - bx, y - by) / (105 * this.scale)) * 4;
+    }
+    return penalty;
+  }
   private freshGrass(s: Sheep) {
     if (s.isLamb) {
       const parent = this.sheep.find(o => o.id === s.parentId);
@@ -204,7 +213,7 @@ export class World {
         let p = this.clampPoint(parent.x, parent.y), best = -Infinity;
         for (let j = 0; j < 8; j++) {
           const a = parent.heading + j * TAU / 8, candidate = this.clampPoint(parent.x + Math.cos(a) * 54 * this.scale, parent.y + Math.sin(a) * 54 * this.scale);
-          const quality = this.pasture.patchQuality(candidate.x, candidate.y) * 3 - Math.hypot(candidate.x - s.x, candidate.y - s.y) * 0.004;
+          const quality = this.pasture.patchQuality(candidate.x, candidate.y) * 3 - Math.hypot(candidate.x - s.x, candidate.y - s.y) * 0.004 - this.birdPenalty(candidate.x, candidate.y);
           if (quality > best) { p = candidate; best = quality; }
         }
         s.goalX = p.x; s.goalY = p.y; s.timer = 12; s.state = 'walking'; return;
@@ -215,7 +224,7 @@ export class World {
     for (let j = 0; j < 38; j++) {
       const a = this.random() * TAU, radius = 35 + this.random() * (j < 25 ? 160 : 330);
       const p = this.clampPoint(s.x + Math.cos(a) * radius * this.scale, s.y + Math.sin(a) * radius * this.scale);
-      let quality = this.pasture.patchQuality(p.x, p.y, 25 * this.scale) * 3 - Math.hypot(p.x - s.x, p.y - s.y) * 0.002;
+      let quality = this.pasture.patchQuality(p.x, p.y, 25 * this.scale) * 3 - Math.hypot(p.x - s.x, p.y - s.y) * 0.002 - this.birdPenalty(p.x, p.y);
       for (const other of this.sheep) if (other !== s && Math.hypot(other.x - p.x, other.y - p.y) < 70 * this.scale) quality -= 0.24;
       // A little company is nice; food quality outweighs this small social bias.
       for (const friend of friends) quality += Math.max(0, 1 - Math.hypot(p.x - friend.x, p.y - friend.y) / (180 * this.scale)) * 0.17;
@@ -305,7 +314,7 @@ export class World {
     this.barks = this.barks.filter(b => b.age < BARK_LIFETIME);
     if (this.marker) { this.marker.age += dt; if (this.marker.age > 1.5) this.marker = null; }
     this.stepDog(dt);
-    const dog = this.dog, scale = this.scale, herd = this.herdCenter(), animals = this.animals;
+    const dog = this.dog, scale = this.scale, herd = this.herdCenter(), animals = this.animals, birdSpots = this.birdLife.groundSpots;
     const driving = !!dog?.orbit && !dog.orbitEntering;
     for (const s of animals) {
       this.updateCompanions(s, dt); s.barkLeft = Math.max(0, s.barkLeft - dt);
@@ -369,6 +378,16 @@ export class World {
         if (other === s) continue;
         const dx = s.x - other.x, dy = s.y - other.y, d = Math.hypot(dx, dy), spacing = (s.isLamb || other.isLamb ? 66 : 76) * scale * (s.size + other.size) * 0.5;
         if (d < spacing) { const k = (1 - d / spacing) ** 2 * 36 * scale; desiredX += (d < 0.001 ? s.id < other.id ? -1 : 1 : dx / d) * k; desiredY += (d < 0.001 ? 0.3 : dy / d) * k; }
+      }
+      for (const bird of birdSpots) {
+        const dx = s.x - bird.x, dy = s.y - bird.y, distance = Math.hypot(dx, dy), radius = 90 * scale;
+        if (distance >= radius) continue;
+        const nx = distance > 0.01 ? dx / distance : Math.cos(s.phase), ny = distance > 0.01 ? dy / distance : Math.sin(s.phase);
+        const strength = 1 - distance / radius, approaching = desiredX * nx + desiredY * ny < 0;
+        const cross = desiredX * ny - desiredY * nx;
+        const side = Math.abs(cross) > 0.1 ? -Math.sign(cross) : hash3(s.id, bird.id, 183) > 0.5 ? 1 : -1;
+        desiredX += nx * strength * 40 * scale + (approaching ? -ny * side * strength * 12 * scale : 0);
+        desiredY += ny * strength * 40 * scale + (approaching ? nx * side * strength * 12 * scale : 0);
       }
       // Sleeping dogs still get a little personal space, without startling the flock.
       if (dog?.sleeping && dogDist < avoidRadius) {

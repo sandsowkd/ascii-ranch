@@ -56,6 +56,44 @@ describe('lambs and visiting birds', () => {
     visitors.step(1 / 30, 1200, 900, p, [], null, [wave]);
     expect(bird.state).toBe('departing'); visitors.reset(); expect(visitors.birds).toHaveLength(0);
   });
+  it('waits for open grass instead of landing in a packed flock', () => {
+    const visitors = new BirdLife(), p = new Pasture(900, 700), packed: { x: number; y: number }[] = [];
+    for (let y = 100; y < 700; y += 60) for (let x = 0; x <= 900; x += 60) packed.push({ x, y });
+    for (let i = 0; i < 240; i++) visitors.step(1 / 30, 900, 700, p, packed, null, []);
+    expect(visitors.birds).toHaveLength(0);
+    for (let i = 0; i < 90; i++) visitors.step(1 / 30, 900, 700, p, [], null, []);
+    expect(visitors.birds).toHaveLength(1); expect(visitors.birds[0].state).toBe('arriving');
+  });
+  it('chooses a new landing site if a sheep occupies the original one during approach', () => {
+    const visitors = new BirdLife(), p = new Pasture(1200, 900);
+    for (let i = 0; i < 153; i++) visitors.step(1 / 30, 1200, 900, p, [], null, []);
+    const bird = visitors.birds[0], blocked = { x: bird.landingX, y: bird.landingY, size: 1 };
+    Object.assign(bird, { x: blocked.x, y: blocked.y });
+    visitors.step(1 / 30, 1200, 900, p, [blocked], null, []);
+    expect(bird.state).toBe('arriving'); expect(Math.hypot(bird.landingX - blocked.x, bird.landingY - blocked.y)).toBeGreaterThanOrEqual(72);
+    for (let i = 0; i < 600 && bird.state === 'arriving'; i++) visitors.step(1 / 30, 1200, 900, p, [blocked], null, []);
+    expect(bird.state).toBe('landed'); expect(Math.hypot(bird.x - blocked.x, bird.y - blocked.y)).toBeGreaterThanOrEqual(72);
+  });
+  it('a grazing sheep walks around a resting bird instead of displacing it', () => {
+    const w = new World(1200, 900, 1), s = w.sheep[0];
+    Object.assign(s, { x: 500, y: 420, heading: 0, state: 'walking', goalX: 850, goalY: 420, timer: 100 });
+    w.birdLife.birds.push({ id: 99, x: 650, y: 420, heading: 0, phase: 0, state: 'landed', age: 0, altitude: 0,
+      landingX: 650, landingY: 420, exitX: 1300, exitY: 300, restFor: 1000, color: 0 });
+    const bird = w.birds[0]; let closest = Infinity, deviation = 0;
+    for (let i = 0; i < 2400; i++) { w.step(1 / 60); closest = Math.min(closest, Math.hypot(s.x - bird.x, s.y - bird.y)); deviation = Math.max(deviation, Math.abs(s.y - 420)); }
+    expect(bird.state).toBe('landed'); expect(closest).toBeGreaterThan(55); expect(deviation).toBeGreaterThan(25); expect(s.x).toBeGreaterThan(690);
+  });
+  it('a sheep body or muzzle that enters a resting bird makes it take off', () => {
+    for (const headFirst of [false, true]) {
+      const visitors = new BirdLife(), p = new Pasture(1200, 900);
+      for (let i = 0; i < 600; i++) visitors.step(1 / 30, 1200, 900, p, [], null, []);
+      const bird = visitors.birds[0]; Object.assign(bird, { state: 'landed', age: 0, x: 600, y: 400 });
+      const sheep = { x: bird.x - (headFirst ? 58 : 35), y: bird.y, size: 1, heading: headFirst ? 0 : Math.PI };
+      visitors.step(1 / 30, 1200, 900, p, [sheep], null, []);
+      expect(bird.state).toBe('departing'); expect(visitors.groundSpots.some(p => p.id === bird.id)).toBe(false);
+    }
+  });
+
 });
 describe('the living pasture', () => {
   it('eats a local patch without changing distant grass', () => {

@@ -102,7 +102,7 @@ test('sheep heads keep priority over overlapping wool', async ({ page }) => {
     Object.assign(w.sheep[0], { x, y, heading: 0, phase: 0, size: 1, state: 'walking' });
     Object.assign(w.sheep[1], { x: x + 35 * scale, y, heading: 0, phase: 0, size: 1, state: 'walking' });
     app.renderer.render();
-    return app.renderer.cellAt(x + 33.5 * scale, y - 7.5 * scale);
+    return app.renderer.cellAt(x + 31.9 * scale, y - 6 * scale);
   });
   expect(result.priority).toBe(4); expect(result.tile).toBe(0); expect(result.glyph).toBe('O');
 });
@@ -143,11 +143,17 @@ test('colorful visitors land in the meadow, take off near the dog, and appear wi
     w.reset(18); w.paused = false;
     for (let i = 0; i < 1500 && !w.birds.some((b: any) => b.state === 'landed'); i++) w.step(1 / 60);
     app.controller.sync(); app.renderer.render();
-    const bird = w.birds.find((b: any) => b.state === 'landed'), p = w.pasture; let colored = 0;
-    for (let row = 0; row < p.rows; row++) for (let col = 0; col < p.cols; col++) if (app.renderer.cellAt((col + 0.5) * p.cellW, (row + 0.5) * p.cellH).family >= 9) colored++;
-    return { bird, colored, lambs: w.lambs.length };
+    const bird = w.birds.find((b: any) => b.state === 'landed'), p = w.pasture; let colored = 0, eyeRow = Infinity, wingRow = -Infinity; const profileRows = new Set<number>();
+    for (let row = 0; row < p.rows; row++) for (let col = 0; col < p.cols; col++) {
+      const cell = app.renderer.cellAt((col + 0.5) * p.cellW, (row + 0.5) * p.cellH);
+      if (cell.family >= 9) colored++;
+      if (bird && cell.priority === 1 && Math.hypot((col + 0.5) * p.cellW - bird.x, (row + 0.5) * p.cellH - bird.y) < 50) {
+        profileRows.add(row); if (cell.glyph === 'o') eyeRow = row; if (cell.glyph === '#') wingRow = row;
+      }
+    }
+    return { bird, colored, lambs: w.lambs.length, profileRows: profileRows.size, eyeAboveWing: eyeRow < wingRow };
   });
-  expect(landed.bird).toBeTruthy(); expect(landed.colored).toBeGreaterThan(3); expect(landed.lambs).toBe(3);
+  expect(landed.bird).toBeTruthy(); expect(landed.colored).toBeGreaterThan(3); expect(landed.lambs).toBe(3); expect(landed.profileRows).toBe(4); expect(landed.eyeAboveWing).toBe(true);
   await page.screenshot({ path: `docs/${info.project.name}-families.png` });
   const departing = await page.evaluate(() => {
     const app = (window as any).__meadow, w = app.world, bird = w.birds.find((b: any) => b.state === 'landed');
