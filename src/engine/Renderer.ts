@@ -38,8 +38,8 @@ export class Renderer {
     this.atlas.width = this.aw * this.atlasCols; this.atlas.height = this.ah * 32 * 8;
     const ctx = this.atlas.getContext('2d')!;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `400 ${this.ah * 0.82}px "Geist Mono", monospace`;
-    const lows = [[48, 72, 35], [28, 24, 16], [126, 128, 105], [114, 120, 97], [99, 73, 43], [69, 69, 51], [29, 42, 24], [65, 70, 50]];
-    const highs = [[149, 182, 100], [75, 59, 34], [248, 243, 219], [246, 244, 218], [230, 182, 115], [229, 208, 136], [55, 71, 41], [169, 178, 138]];
+    const lows = [[48, 72, 35], [28, 24, 16], [126, 128, 105], [114, 120, 97], [99, 73, 43], [69, 69, 51], [32, 51, 29], [65, 70, 50]];
+    const highs = [[149, 182, 100], [75, 59, 34], [248, 243, 219], [246, 244, 218], [230, 182, 115], [229, 208, 136], [84, 123, 54], [169, 178, 138]];
     for (let family = 0; family < 8; family++) for (let level = 0; level < 32; level++) {
       const t = level / 31, lo = lows[family], hi = highs[family];
       ctx.fillStyle = `rgb(${Math.round(lo[0] + (hi[0] - lo[0]) * t)},${Math.round(lo[1] + (hi[1] - lo[1]) * t)},${Math.round(lo[2] + (hi[2] - lo[2]) * t)})`;
@@ -126,11 +126,12 @@ export class Renderer {
     this.shadow(d.x + 4, d.y + 6, rx + 9, ry + 7);
     for (const front of [-1, 1]) for (const side of [-1, 1]) {
       const stride = Math.sin(w.time * (d.sprint > 0 || d.launching ? 25 : 18) + (front === side ? 0 : Math.PI));
-      const f = front * 13 * scale, kick = speed > 3 ? stride * 7 * scale : 0;
+      const f = front * 13 * scale, kick = speed > 3 ? stride * 4.5 * scale : 0;
       const hipX = d.x + dx * f + sx * side * 8 * scale, hipY = d.y + dy * f + sy * side * 8 * scale;
-      const kneeX = d.x + dx * (f + kick * 0.45) + sx * side * 16 * scale, kneeY = d.y + dy * (f + kick * 0.45) + sy * side * 16 * scale;
-      const footX = d.x + dx * (f + kick) + sx * side * 21 * scale, footY = d.y + dy * (f + kick) + sy * side * 21 * scale;
-      this.stroke(hipX, hipY, kneeX, kneeY, 0.95, 4); this.stroke(kneeX, kneeY, footX, footY, 0.85, 3);
+      const kneeX = d.x + dx * (f + kick * 0.45) + sx * side * 12.5 * scale, kneeY = d.y + dy * (f + kick * 0.45) + sy * side * 12.5 * scale;
+      const footX = d.x + dx * (f + kick) + sx * side * 15 * scale, footY = d.y + dy * (f + kick) + sy * side * 15 * scale;
+      this.stroke(hipX, hipY, kneeX, kneeY, 0.75, 4); this.stroke(kneeX, kneeY, footX, footY, 0.65, 4);
+      this.put(footX, footY, '.', 0.55, 3);
     }
     for (let r = Math.floor((d.y - rx) / p.cellH); r <= Math.ceil((d.y + rx) / p.cellH); r++) for (let c = Math.floor((d.x - rx) / p.cellW); c <= Math.ceil((d.x + rx) / p.cellW); c++) {
       const x = (c + 0.5) * p.cellW, y = (r + 0.5) * p.cellH, ox = x - d.x, oy = y - d.y;
@@ -139,7 +140,7 @@ export class Renderer {
       const chest = along > rx * 0.35 && Math.abs(side) < ry * 0.9;
       this.put(x, y, chest ? 'o' : '#', chest ? 0.85 : 0.8, chest ? 2 : 4);
     }
-    const wag = d.sleeping ? 0 : Math.sin(w.time * (speed > 3 ? 15 : 5)) * (speed > 3 ? 10 : 4) * scale;
+    const wag = d.sleeping ? 0 : Math.sin(w.time * (speed > 3 ? 15 : 5)) * (speed > 3 ? 15 : 7) * scale;
     let tailX = d.x - dx * rx, tailY = d.y - dy * rx;
     for (let j = 1; j <= 5; j++) {
       const t = j / 5, x = d.x - dx * (rx + t * 21 * scale) + sx * wag * t * t;
@@ -147,10 +148,20 @@ export class Renderer {
       this.stroke(tailX, tailY, x, y, 0.95, j === 5 ? 3 : 4); tailX = x; tailY = y;
     }
     const hx = d.x + dx * (rx + 2), hy = d.y + dy * (rx + 2);
-    for (const side of [-1, 1]) this.put(hx + sx * side * 7 - dx * 4, hy + sy * side * 7 - dy * 4, '^', 0.55, 4);
-    this.put(hx, hy, 'o', 0.85, 3);
-    const nose = Math.abs(dx) > Math.abs(dy) ? dx > 0 ? '>' : '<' : dy > 0 ? 'v' : '^';
-    this.put(hx + dx * 8, hy + dy * 8, nose, 0.75, 4);
+    // A compact collie face: copper cheeks, a pale blaze and a short muzzle.
+    for (let r = Math.floor((hy - 11 * scale) / p.cellH); r <= Math.ceil((hy + 11 * scale) / p.cellH); r++) for (let c = Math.floor((hx - 11 * scale) / p.cellW); c <= Math.ceil((hx + 11 * scale) / p.cellW); c++) {
+      const x = (c + 0.5) * p.cellW, y = (r + 0.5) * p.cellH, ox = x - hx, oy = y - hy;
+      const along = ox * dx + oy * dy, side = ox * sx + oy * sy;
+      if ((along / (9 * scale)) ** 2 + (side / (7 * scale)) ** 2 > 1) continue;
+      const blaze = Math.abs(side) < 2.7 * scale;
+      this.put(x, y, blaze ? ':' : '%', blaze ? 0.75 : 0.85, blaze ? 2 : 4);
+    }
+    for (const side of [-1, 1]) {
+      this.stroke(hx - dx * 5 * scale + sx * side * 5 * scale, hy - dy * 5 * scale + sy * side * 5 * scale,
+        hx - dx * 9 * scale + sx * side * 9 * scale, hy - dy * 9 * scale + sy * side * 9 * scale, 0.65, 4);
+      this.put(hx - dx * scale + sx * side * 4 * scale, hy - dy * scale + sy * side * 4 * scale, 'o', 0.9, 3);
+    }
+    this.put(hx + dx * 8 * scale, hy + dy * 8 * scale, 'x', 0.3, 7);
     // An unobtrusive copper selection mark makes the dog easy to pick out.
     this.put(d.x - 10, d.y - 25 * scale, '[', 0.5, 4);
     this.put(d.x + 10, d.y - 25 * scale, ']', 0.5, 4);
@@ -162,6 +173,18 @@ export class Renderer {
         const px = (c + 0.5) * p.cellW, py = (r + 0.5) * p.cellH, dx = px - x, dy = py - y;
         const off = Math.abs(Math.hypot(dx, dy) - radius);
         if (off < band) this.put(px, py, lineGlyph(-dy, dx), strength * (1 - off / band), family);
+      }
+    }
+  }
+  private barkRipple(x: number, y: number, age: number) {
+    if (age >= 1.2) return;
+    const p = this.world.pasture, t = age / 1.2, radius = (14 + t * 72) * this.world.scale, band = p.cellW * 0.65;
+    for (let r = Math.max(0, Math.floor((y - radius - band) / p.cellH)); r <= Math.min(p.rows - 1, Math.ceil((y + radius + band) / p.cellH)); r++) {
+      for (let c = Math.max(0, Math.floor((x - radius - band) / p.cellW)); c <= Math.min(p.cols - 1, Math.ceil((x + radius + band) / p.cellW)); c++) {
+        const px = (c + 0.5) * p.cellW, py = (r + 0.5) * p.cellH, dx = px - x, dy = py - y;
+        const off = Math.abs(Math.hypot(dx, dy) - radius);
+        // A single thin, broken ripple rather than two bright expanding walls.
+        if (off < band && this.texture[r * p.cols + c] > 0.42) this.put(px, py, lineGlyph(-dy, dx), 0.3 * (1 - t) * (1 - off / band), t < 0.65 ? 5 : 1);
       }
     }
   }
@@ -223,10 +246,7 @@ export class Renderer {
       this.ring(m.x, m.y, radius, Math.max(0, 0.9 - m.age * 0.65), 0);
       this.put(m.x, m.y, '+', Math.max(0, 0.8 - m.age * 0.5), 0);
     }
-    for (const bark of w.barks) for (let ring = 0; ring < 2; ring++) {
-      const age = bark.age - ring * 0.12;
-      if (age > 0) this.ring(bark.x, bark.y, age * 150 * w.scale, (1 - bark.age / 2.4) * (ring ? 0.4 : 0.8), 5);
-    }
+    for (const bark of w.barks) this.barkRipple(bark.x, bark.y, bark.age);
     this.pen();
     for (const s of w.sheep) this.shadow(s.x + 4, s.y + 7, 25.5 * w.scale * s.size + 8, 17.5 * w.scale * s.size + 5);
     for (const s of w.sheep) this.sheep(s);

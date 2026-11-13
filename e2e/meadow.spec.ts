@@ -237,6 +237,23 @@ test('regrowth gains characters and color gradually, and running dogs have visib
   expect(result.stages[0].glyph).toBe(' '); expect(result.stages[1].glyph).toBe('.');
   expect(result.stages[2].family).toBe(6); expect(result.stages[3].family).toBe(0);
   expect(result.stages[5].level).toBeGreaterThan(result.stages[3].level);
-  expect(result.tail).toBeGreaterThan(3); expect(result.feet).toBeGreaterThan(8);
+  expect(result.tail).toBeGreaterThan(3); expect(result.feet).toBeGreaterThan(2); expect(result.feet).toBeLessThan(16);
   await page.screenshot({ path: `docs/${info.project.name}-regrowth.png` });
+});
+
+test('bark uses one small fading ripple near the dog', async ({ page }) => {
+  const ripple = await page.evaluate(() => {
+    const app = (window as any).__meadow, w = app.world, p = w.pasture; w.reset(0); w.paused = true;
+    const x = w.width * 0.5, y = w.height * 0.4; p.flower.fill(-1); app.renderer.render();
+    const before = Array.from({ length: p.cols * p.rows }, (_, i) => JSON.stringify(app.renderer.cellAt((i % p.cols + 0.5) * p.cellW, (Math.floor(i / p.cols) + 0.5) * p.cellH)));
+    w.barks.push({ x, y, age: 0.5 }); app.renderer.render(); let changed = 0, farthest = 0;
+    for (let i = 0; i < before.length; i++) {
+      const px = (i % p.cols + 0.5) * p.cellW, py = (Math.floor(i / p.cols) + 0.5) * p.cellH;
+      if (before[i] !== JSON.stringify(app.renderer.cellAt(px, py))) { changed++; farthest = Math.max(farthest, Math.hypot(px - x, py - y)); }
+    }
+    w.barks[0].age = 1.3; app.renderer.render(); let remaining = 0;
+    for (let i = 0; i < before.length; i++) if (before[i] !== JSON.stringify(app.renderer.cellAt((i % p.cols + 0.5) * p.cellW, (Math.floor(i / p.cols) + 0.5) * p.cellH))) remaining++;
+    return { changed, farthest: farthest / w.scale, remaining };
+  });
+  expect(ripple.changed).toBeGreaterThan(4); expect(ripple.changed).toBeLessThan(180); expect(ripple.farthest).toBeLessThan(90); expect(ripple.remaining).toBe(0);
 });

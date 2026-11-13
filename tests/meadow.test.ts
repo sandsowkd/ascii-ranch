@@ -25,7 +25,7 @@ describe('the living pasture', () => {
     const p = new Pasture(900, 700), i = p.index(400, 300);
     p.grass[i] = 0; p.tread(400, 300, 1); const tread = p.trampled[i];
     for (let k = 0; k < 1200; k++) p.step(0.1);
-    expect(p.grass[i]).toBeGreaterThan(0.35); expect(p.grass[i]).toBeLessThan(0.42); expect(p.grass[i]).toBeLessThanOrEqual(p.capacity[i]);
+    expect(p.grass[i]).toBeGreaterThan(0.25); expect(p.grass[i]).toBeLessThan(0.28); expect(p.grass[i]).toBeLessThanOrEqual(p.capacity[i]);
     expect(p.trampled[i]).toBeLessThan(tread * 0.01);
   });
   it('keeps nibbled ground cropped for minutes, preserves it on resize, and lets the brush restore it', () => {
@@ -214,7 +214,7 @@ describe('staged recovery and responsive controls', () => {
     const p = new Pasture(900, 700); p.bite(300, 300, 5, 25);
     for (let i = 0; i < 150; i++) p.step(0.1);
     p.bite(600, 300, 5, 25);
-    for (let i = 0; i < 250; i++) p.step(0.1);
+    for (let i = 0; i < 630; i++) p.step(0.1);
     expect(p.recoverIn[p.index(300, 300)]).toBe(0); expect(p.recoverIn[p.index(600, 300)]).toBeGreaterThan(0);
     expect(p.at(300, 300)).toBeGreaterThan(p.at(600, 300)); expect(p.edibleAt(300, 300)).toBe(0);
   });
@@ -232,5 +232,31 @@ describe('staged recovery and responsive controls', () => {
     const route = w.orbitRoute(), b = w.orbitOutline(), rectangle = 2 * (b.right - b.left + b.bottom - b.top);
     expect(route.length).toBeGreaterThan(20); expect(perimeter(route)).toBeLessThan(rectangle * 0.85);
     for (const sheep of w.sheep) expect(nearestOnRoute(route, sheep).distance).toBeGreaterThan(55);
+  });
+});
+
+describe('safe dog routes and active herding', () => {
+  it('detours around a sheep instead of crossing its footprint, even during a sprint', () => {
+    const w = new World(1200, 900, 1); w.toggleDog(); Object.assign(w.dog!, { x: 250, y: 400 }); w.sendDog(950, 400); w.cast('e');
+    let lateral = 0;
+    for (let frame = 0; frame < 720; frame++) {
+      Object.assign(w.sheep[0], { x: 600, y: 400, heading: 0, size: 1, vx: 0, vy: 0, timer: 100 });
+      w.step(1 / 60); const d = w.dog!;
+      expect(Math.hypot(d.x - 608, d.y - 400)).toBeGreaterThanOrEqual(56.9);
+      lateral = Math.max(lateral, Math.abs(d.y - 400));
+    }
+    expect(lateral).toBeGreaterThan(55); expect(Math.hypot(w.dog!.x - 950, w.dog!.y - 400)).toBeLessThan(3);
+  });
+  it('Come By runs faster and reduces flock spread compared with ordinary grazing', () => {
+    const active = new World(1440, 900, 18), calm = new World(1440, 900, 18);
+    const spread = (w: World) => { const h = w.herdCenter(); return w.sheep.reduce((sum, s) => sum + Math.hypot(s.x - h.x, s.y - h.y), 0) / w.sheep.length; };
+    active.cast('w'); let peak = 0;
+    for (let i = 0; i < 1800; i++) { active.step(1 / 60); calm.step(1 / 60); peak = Math.max(peak, Math.hypot(active.dog!.vx, active.dog!.vy)); }
+    expect(peak).toBeGreaterThan(180); expect(spread(active)).toBeLessThan(spread(calm) * 0.8);
+  });
+  it('keeps grass bare for at least a minute before staged growth begins', () => {
+    const p = new Pasture(900, 700); p.bite(450, 350, 5, 25);
+    for (let i = 0; i < 600; i++) p.step(0.1);
+    expect(p.at(450, 350)).toBe(0); expect(p.recoverIn[p.index(450, 350)]).toBeGreaterThan(5);
   });
 });
