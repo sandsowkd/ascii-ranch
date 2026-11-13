@@ -23,8 +23,22 @@ describe('the living pasture', () => {
     const p = new Pasture(900, 700), i = p.index(400, 300);
     p.grass[i] = 0; p.tread(400, 300, 1); const tread = p.trampled[i];
     for (let k = 0; k < 1200; k++) p.step(0.1);
-    expect(p.grass[i]).toBeGreaterThan(0.3); expect(p.grass[i]).toBeLessThanOrEqual(p.capacity[i]);
+    expect(p.grass[i]).toBeGreaterThan(0.08); expect(p.grass[i]).toBeLessThan(0.12); expect(p.grass[i]).toBeLessThanOrEqual(p.capacity[i]);
     expect(p.trampled[i]).toBeLessThan(tread * 0.01);
+  });
+  it('keeps nibbled ground cropped for minutes, preserves it on resize, and lets the brush restore it', () => {
+    const p = new Pasture(900, 700), i = p.index(400, 300);
+    p.bite(400, 300, 5, 25); const grass = p.grass[i];
+    expect(p.cropped[i]).toBe(1);
+    for (let k = 0; k < 600; k++) p.step(0.1);
+    expect(p.grass[i]).toBeCloseTo(grass, 5); expect(p.cropped[i]).toBe(1);
+    p.resize(1800, 1400); const next = p.index(800, 600);
+    expect(p.cropped[next]).toBe(1); expect(p.recoverIn[next]).toBeGreaterThan(25);
+    p.regrow(800, 600); expect(p.at(800, 600)).toBe(1); expect(p.cropped[next]).toBe(0); expect(p.recoverIn[next]).toBe(0);
+  });
+  it('uses a character grid exactly one-third smaller than the previous field', () => {
+    const p = new Pasture(1200, 900); expect(p.cellW).toBeCloseTo(8 * 2 / 3); expect(p.cellH).toBeCloseTo(10 * 2 / 3);
+    p.resize(412, 839); expect(p.cellW).toBe(4); expect(p.cellH).toBeCloseTo(8 * 2 / 3);
   });
   it('grazers consume actual grass and move to new patches', () => {
     const w = new World(900, 700, 1), s = w.sheep[0], before = { x: s.x, y: s.y };
@@ -134,6 +148,25 @@ describe('a controllable sheepdog', () => {
     const w = new World(1200, 900, 2); w.sheep.forEach(s => Object.assign(s, { x: 500, y: 350, timer: 100, size: 1 }));
     advance(w, 2); const [a, b] = w.sheep;
     expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThan(42);
+  });
+});
+describe('natural flock cohesion', () => {
+  const spread = (w: World) => { const h = w.herdCenter(); return w.sheep.reduce((sum, s) => sum + Math.hypot(s.x - h.x, s.y - h.y), 0) / w.sheep.length; };
+  it('brings scattered sheep into one loose group while retaining personal space', () => {
+    const w = new World(1440, 900, 18), before = spread(w);
+    advance(w, 70); const h = w.herdCenter();
+    expect(spread(w)).toBeLessThan(before * 0.8); expect(spread(w)).toBeLessThan(h.radius);
+    let closest = Infinity;
+    for (let i = 0; i < w.sheep.length; i++) for (let j = i + 1; j < w.sheep.length; j++) closest = Math.min(closest, Math.hypot(w.sheep[i].x - w.sheep[j].x, w.sheep[i].y - w.sheep[j].y));
+    expect(closest).toBeGreaterThan(35);
+  });
+  it('lets the dog break up a flock, which gathers again once the pressure goes away', () => {
+    const w = new World(1440, 900, 6);
+    w.sheep.forEach((s, i) => { const angle = i / 6 * Math.PI * 2; Object.assign(s, { x: 720 + Math.cos(angle) * 90, y: 420 + Math.sin(angle) * 90, timer: 100 }); });
+    const before = spread(w); w.toggleDog(); Object.assign(w.dog!, { x: 720, y: 420, targetX: 720, targetY: 420 });
+    w.cast('q'); advance(w, 5); const scattered = spread(w);
+    expect(scattered).toBeGreaterThan(before + 120);
+    w.dog = null; advance(w, 80); expect(spread(w)).toBeLessThan(scattered * 0.7);
   });
 });
 describe('stable state and controls', () => {

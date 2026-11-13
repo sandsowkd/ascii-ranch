@@ -103,12 +103,12 @@ test('sheep heads keep priority over overlapping wool', async ({ page }) => {
     Object.assign(w.sheep[0], { x, y, heading: 0, phase: 0, size: 1, state: 'walking' });
     Object.assign(w.sheep[1], { x: x + 35 * scale, y, heading: 0, phase: 0, size: 1, state: 'walking' });
     app.renderer.render();
-    return app.renderer.cellAt(x + 25.5 * scale + 4 - 4.4 * scale, y - 5.4 * scale);
+    return app.renderer.cellAt(x + 32.5 * scale, y - 5.8 * scale);
   });
-  expect(result.priority).toBe(2); expect(result.tile).toBe(0); expect(result.glyph).toBe('o');
+  expect(result.priority).toBe(4); expect(result.tile).toBe(0); expect(result.glyph).toBe('O');
 });
 
-test('uneaten turf is light green, grazed turf is dark green on black, and idle dogs show drifting Zs', async ({ page }, info) => {
+test('uneaten turf is light green, grazed turf is dark green on charcoal, and idle dogs show drifting Zs', async ({ page }, info) => {
   const result = await page.evaluate(() => {
     const app = (window as any).__meadow, w = app.world, p = w.pasture;
     w.paused = true; w.sheep.length = 0;
@@ -117,7 +117,7 @@ test('uneaten turf is light green, grazed turf is dark green on black, and idle 
     app.renderer.render(); return { full: app.renderer.cellAt(x, y), eaten: app.renderer.cellAt(x + 50, y) };
   });
   expect(result.full.family).toBe(0); expect([6, 1]).toContain(result.eaten.family);
-  expect(result.full.tile).toBe(0); expect(result.eaten.tile).toBe(0); expect(result.full.level).toBeGreaterThan(result.eaten.level + 9);
+  expect(result.full.tile).toBe(0); expect(result.eaten.tile).toBe(0); expect(result.full.level).toBeGreaterThan(result.eaten.level + 6);
   const asleep = await page.evaluate(() => {
     const app = (window as any).__meadow, w = app.world; w.reset(18); w.paused = false; w.toggleDog();
     for (let frame = 0; frame < 450; frame++) w.step(1 / 60);
@@ -152,25 +152,25 @@ test('Space toggles a continuous hover regrow brush; P pauses independently', as
   expect((await state(page)).dog).toBeNull(); expect((await state(page)).feed).toHaveLength(0);
 });
 
-test('terrain uses colored glyphs on pure black; brown is rare and only on eaten grass', async ({ page }, info) => {
+test('terrain matches Pond charcoal; cropped grass is dark green dots with no tile fills', async ({ page }, info) => {
   const result = await page.evaluate(() => {
     const app = (window as any).__meadow, w = app.world, p = w.pasture; w.paused = true; w.sheep.length = 0;
     p.flower.fill(-1); p.grass.fill(1); app.renderer.render();
-    let freshBrown = 0, brown = 0, dark = 0, full = 0;
+    let freshBrown = 0, brown = 0, dark = 0, full = 0, dots = 0;
     for (let r = 10; r < p.rows - 20; r++) for (let c = 5; c < p.cols - 5; c++) {
       if (app.renderer.cellAt(c * p.cellW, r * p.cellH).family === 1) freshBrown++;
     }
     p.grass.fill(0.02); app.renderer.render();
     for (let r = 10; r < p.rows - 20; r++) for (let c = 5; c < p.cols - 5; c++) {
       const cell = app.renderer.cellAt(c * p.cellW, r * p.cellH); full++;
-      if (cell.family === 1) brown++; if (cell.family === 6) dark++;
+      if (cell.family === 1) brown++; if (cell.family === 6) dark++; if (cell.glyph === '.') dots++;
     }
     const ctx = app.renderer.canvas.getContext('2d'), d = app.renderer.canvas.width / w.width;
     const pixels = ctx.getImageData(Math.floor(w.width * 0.3 * d), Math.floor(w.height * 0.3 * d), 100, 100).data;
-    let black = 0; for (let i = 0; i < pixels.length; i += 4) if (pixels[i] === 0 && pixels[i+1] === 0 && pixels[i+2] === 0) black++;
-    return { freshBrown, ratio: brown / full, dark: dark / full, black: black / (pixels.length / 4) };
+    let black = 0; for (let i = 0; i < pixels.length; i += 4) if (pixels[i] === 26 && pixels[i+1] === 25 && pixels[i+2] === 23) black++;
+    return { dots: dots / full, freshBrown, ratio: brown / full, dark: dark / full, black: black / (pixels.length / 4) };
   });
-  expect(result.freshBrown).toBe(0); expect(result.ratio).toBeLessThan(0.07); expect(result.dark).toBeGreaterThan(0.92); expect(result.black).toBeGreaterThan(0.8);
+  expect(result.freshBrown).toBe(0); expect(result.ratio).toBe(0); expect(result.dots).toBeGreaterThan(0.99); expect(result.dark).toBeGreaterThan(0.92); expect(result.black).toBeGreaterThan(0.8);
   await page.evaluate(() => {
     const app = (window as any).__meadow, w = app.world, p = w.pasture; w.reset(18); w.paused = true;
     for (const s of w.sheep) { for (let i = 0; i < 10; i++) p.bite(s.x - 22 + i * 4, s.y + 10, 25, 24); }
@@ -178,4 +178,40 @@ test('terrain uses colored glyphs on pure black; brown is rare and only on eaten
     app.controller.sync(); app.renderer.render();
   });
   await page.screenshot({ path: `docs/${info.project.name}-grass.png` });
+});
+
+test('sheep naturally gather and leave lasting cropped patches', async ({ page }, info) => {
+  const result = await page.evaluate(() => {
+    const app = (window as any).__meadow, w = app.world;
+    w.reset(18); w.paused = false;
+    const spread = () => { const h = w.herdCenter(); return w.sheep.reduce((sum: number, s: any) => sum + Math.hypot(s.x - h.x, s.y - h.y), 0) / w.sheep.length; };
+    const before = spread();
+    for (let frame = 0; frame < 90 * 60; frame++) w.step(1 / 60);
+    app.controller.sync(); app.renderer.render();
+    const p = w.pasture; let cropped = 0, visibleDots = 0;
+    for (let i = 0; i < p.grass.length; i++) if (p.cropped[i]) {
+      cropped++;
+      const cell = app.renderer.cellAt((i % p.cols + 0.5) * p.cellW, (Math.floor(i / p.cols) + 0.5) * p.cellH);
+      if (cell.family === 6 && cell.glyph === '.') visibleDots++;
+    }
+    return { before, after: spread(), cropped, visibleDots, cellW: p.cellW, cellH: p.cellH };
+  });
+  expect(result.after).toBeLessThan(result.before * 0.85); expect(result.cropped).toBeGreaterThan(100); expect(result.visibleDots).toBeGreaterThan(40);
+  await page.screenshot({ path: `docs/${info.project.name}-flock.png` });
+});
+
+
+test('incremental glyph painting leaves no movement trails', async ({ page }) => {
+  const changed = await page.evaluate(() => {
+    const app = (window as any).__meadow, w = app.world, r = app.renderer; w.paused = false;
+    w.sendDog(w.width * 0.4, w.height * 0.4); w.cast('q');
+    for (let frame = 0; frame < 60; frame++) { w.step(1 / 60); r.render(); }
+    w.dog = null; w.barks.length = 0; w.marker = null; r.render();
+    const canvas = r.canvas, ctx = canvas.getContext('2d');
+    const incremental = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    r.resize(); r.render(); const full = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    let different = 0; for (let i = 0; i < full.length; i++) if (full[i] !== incremental[i]) different++;
+    return different;
+  });
+  expect(changed).toBe(0);
 });

@@ -6,13 +6,15 @@ import type { Sheep, World } from '../simulation/World';
  * Copyright (c) 2026 stqfdyr; public/licenses/ascii-pond-MIT.txt. */
 export const DENSITY_GLYPHS = "t%SX8@#";
 const GLYPHS = " tSX" + ".,:;'`|/\\v!+*ox@O%#8-=~^<>()[]zZ";
-export const BG = '#000000';
+export const BG = '#1a1917';
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private atlas = document.createElement('canvas');
   private dpr = 1; private aw = 8; private ah = 10;
   private codes = new Uint8Array(0); private levels = new Uint8Array(0); private family = new Uint8Array(0);
   private priority = new Uint8Array(0);
+  private previousCodes = new Uint8Array(0); private previousLevels = new Uint8Array(0); private previousFamily = new Uint8Array(0);
+  private repaintAll = true;
   private texture = new Float32Array(0); private atlasCols = GLYPHS.length;
   constructor(public canvas: HTMLCanvasElement, public world: World) { this.ctx = canvas.getContext('2d', { alpha: false })!; this.resize(); }
   resize() {
@@ -23,18 +25,20 @@ export class Renderer {
     this.codes = new Uint8Array(n); this.levels = new Uint8Array(n); this.family = new Uint8Array(n);
     this.texture = new Float32Array(n);
     this.priority = new Uint8Array(n);
+    this.previousCodes = new Uint8Array(n); this.previousLevels = new Uint8Array(n); this.previousFamily = new Uint8Array(n);
     for (let i = 0; i < n; i++) this.texture[i] = hash3(i % p.cols, Math.floor(i / p.cols), 39);
     this.buildAtlas();
   }
   async ready() { await document.fonts.load('400 12px "Geist Mono"'); this.buildAtlas(); this.render(); }
   private buildAtlas() {
+    this.repaintAll = true;
     const { cellW, cellH } = this.world.pasture;
     this.aw = Math.ceil(cellW * this.dpr); this.ah = Math.ceil(cellH * this.dpr);
     this.atlas.width = this.aw * this.atlasCols; this.atlas.height = this.ah * 32 * 8;
     const ctx = this.atlas.getContext('2d')!;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `400 ${Math.round(cellH * 0.82 * this.dpr)}px "Geist Mono", monospace`;
-    const lows = [[48, 72, 35], [28, 24, 16], [126, 128, 105], [114, 120, 97], [99, 73, 43], [69, 69, 51], [8, 19, 11], [65, 70, 50]];
-    const highs = [[149, 182, 100], [75, 59, 34], [248, 243, 219], [246, 244, 218], [230, 182, 115], [229, 208, 136], [38, 57, 29], [169, 178, 138]];
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `400 ${this.ah * 0.82}px "Geist Mono", monospace`;
+    const lows = [[48, 72, 35], [28, 24, 16], [126, 128, 105], [114, 120, 97], [99, 73, 43], [69, 69, 51], [29, 42, 24], [65, 70, 50]];
+    const highs = [[149, 182, 100], [75, 59, 34], [248, 243, 219], [246, 244, 218], [230, 182, 115], [229, 208, 136], [55, 71, 41], [169, 178, 138]];
     for (let family = 0; family < 8; family++) for (let level = 0; level < 32; level++) {
       const t = level / 31, lo = lows[family], hi = highs[family];
       ctx.fillStyle = `rgb(${Math.round(lo[0] + (hi[0] - lo[0]) * t)},${Math.round(lo[1] + (hi[1] - lo[1]) * t)},${Math.round(lo[2] + (hi[2] - lo[2]) * t)})`;
@@ -87,12 +91,26 @@ export class Renderer {
     return;
     }
     const nibble = s.state === 'grazing' || s.state === 'following' && Math.hypot(s.vx, s.vy) < 3 ? Math.sin(w.time * 5 + s.phase) * 2.5 : 0;
-    const hx = s.x + dx * (rx + 4 + nibble), hy = s.y + dy * (rx + 4 + nibble);
-    for (const side of [-1, 1]) this.put(hx + sx * side * 11 * scale - dx * 3, hy + sy * side * 11 * scale - dy * 3, side === 1 ? '\\' : '/', 0.64, 2, 2);
-    for (const front of [-0.4, 0.5]) for (const side of [-0.45, 0.45]) {
-      const px = hx + dx * front * 11 * scale + sx * side * 12 * scale, py = hy + dy * front * 11 * scale + sy * side * 12 * scale;
-      this.put(px, py, front < 0 ? 'o' : '.', front < 0 ? 0.8 : 0.45, 3, 2);
+    const hx = s.x + dx * (rx + 9 * scale + nibble), hy = s.y + dy * (rx + 9 * scale + nibble);
+    // A separate, outlined oval face stays legible over wool and grass.
+    const headR = 13 * scale;
+    for (let r = Math.floor((hy - headR) / p.cellH); r <= Math.ceil((hy + headR) / p.cellH); r++) for (let c = Math.floor((hx - headR) / p.cellW); c <= Math.ceil((hx + headR) / p.cellW); c++) {
+      const x = (c + 0.5) * p.cellW, y = (r + 0.5) * p.cellH, ox = x - hx, oy = y - hy;
+      const along = (ox * dx + oy * dy) / (11 * scale), side = (ox * sx + oy * sy) / (10 * scale);
+      const distance = along * along + side * side;
+      if (distance > 1) continue;
+      const nx = dx * along + sx * side, ny = dy * along + sy * side;
+      this.put(x, y, distance > 0.48 ? lineGlyph(-ny, nx) : ':', distance > 0.48 ? 0.6 : 0.08, 7, 2);
     }
+    for (const side of [-1, 1]) {
+      const ex = hx - dx * 4 * scale + sx * side * 14 * scale, ey = hy - dy * 4 * scale + sy * side * 14 * scale;
+      this.put(ex, ey, lineGlyph(dx + sx * side, dy + sy * side), 0.8, 2, 3);
+      this.put(ex - dx * 4 * scale + sx * side * 2 * scale, ey - dy * 4 * scale + sy * side * 2 * scale, side < 0 ? '(' : ')', 0.65, 2, 3);
+      this.put(hx - dx * 2 * scale + sx * side * 5.8 * scale, hy - dy * 2 * scale + sy * side * 5.8 * scale, 'O', 0.95, 3, 4);
+    }
+    this.put(hx + dx * 7 * scale, hy + dy * 7 * scale, '.', 0.9, 3, 3);
+    this.put(hx + dx * 11 * scale, hy + dy * 11 * scale, lineGlyph(sx, sy), 0.55, 7, 3);
+
   }
   private dog() {
     const w = this.world, d = w.dog;
@@ -169,12 +187,11 @@ export class Renderer {
       let glyph = density > 0.78 ? (texture < 0.27 ? "'" : texture < 0.5 ? ',' : texture < 0.72 ? '|' : texture < 0.85 ? 'v' : texture < 0.93 ? (wind > 0 ? '/' : '\\') : DENSITY_GLYPHS[Math.min(6, Math.floor(texture * 7))]) : density > 0.48 ? DENSITY_GLYPHS[Math.round((density - 0.48) / 0.52 * 4)] :
         density > 0.28 ? (texture > 0.5 ? ';' : "'") : density > 0.12 ? ',' : '.';
       if (p.trampled[i] > 0.3 && remaining > 0.45) glyph = texture > 0.5 ? '/' : '\\';
-      const eaten = remaining < 0.42;
+      const eaten = p.cropped[i] > 0 || remaining < 0.78;
+      if (eaten) glyph = '.';
       let family = eaten ? 6 : 0;
-      let level = eaten ? 0.12 + remaining * 0.3 : 0.12 + Math.pow(remaining, 2) * 0.53 + wind * 0.025;
-      // A few tiny flecks of earth, exclusively where almost all grass was eaten.
-      if (remaining < 0.12 && texture > 0.96) { family = 1; level = 0.15; glyph = '.'; }
-      if (p.flower[i] >= 0 && grass > 0.5 && remaining > 0.8) { glyph = p.flower[i] > 0.5 ? '*' : '+'; family = p.flower[i] > 0.7 ? 3 : 5; level = 0.45 + texture * 0.25; }
+      let level = eaten ? 0.32 : 0.12 + Math.pow(remaining, 2) * 0.53 + wind * 0.025;
+      if (p.flower[i] >= 0 && !eaten && grass > 0.5 && remaining > 0.8) { glyph = p.flower[i] > 0.5 ? '*' : '+'; family = p.flower[i] > 0.7 ? 3 : 5; level = 0.45 + texture * 0.25; }
       const edge = Math.min(c * cw, w.width - c * cw, r * ch, w.height - r * ch);
       // Dense meadow at the edges, quiet breathing room for the controls.
       const uiDim = Math.min(r * ch / 100, (w.height - r * ch) / 125, 1);
@@ -207,10 +224,17 @@ export class Renderer {
     // Faces and ears always survive another animal's wool or shadow.
     for (const s of w.sheep) this.sheep(s, true);
     this.sleep();
-    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); ctx.fillStyle = BG; ctx.fillRect(0, 0, w.width, w.height); ctx.imageSmoothingEnabled = false;
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); ctx.fillStyle = BG; if (this.repaintAll) ctx.fillRect(0, 0, w.width, w.height); ctx.imageSmoothingEnabled = false;
     for (let i = 0; i < this.codes.length; i++) {
-      const x = i % cols * cw, y = Math.floor(i / cols) * ch;
-      ctx.drawImage(this.atlas, this.codes[i] * this.aw, (this.family[i] * 32 + this.levels[i]) * this.ah, this.aw, this.ah, x, y, cw, ch);
+      // Retain unchanged grass pixels. Snap cell edges to device pixels so erasing
+      // moving creatures leaves exactly the same surface as a complete redraw.
+      if (!this.repaintAll && this.codes[i] === this.previousCodes[i] && this.levels[i] === this.previousLevels[i] && this.family[i] === this.previousFamily[i]) continue;
+      const col = i % cols, row = Math.floor(i / cols), d = this.dpr;
+      const x = Math.round(col * cw * d) / d, y = Math.round(row * ch * d) / d;
+      const width = Math.round((col + 1) * cw * d) / d - x, height = Math.round((row + 1) * ch * d) / d - y;
+      if (!this.repaintAll) ctx.fillRect(x, y, width, height);
+      ctx.drawImage(this.atlas, this.codes[i] * this.aw, (this.family[i] * 32 + this.levels[i]) * this.ah, this.aw, this.ah, x, y, width, height);
     }
+    this.previousCodes.set(this.codes); this.previousLevels.set(this.levels); this.previousFamily.set(this.family); this.repaintAll = false;
   }
 }

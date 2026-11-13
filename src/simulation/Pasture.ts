@@ -5,16 +5,18 @@ export class Pasture {
   cols = 0; rows = 0; cellW = 8; cellH = 10;
   grass = new Float32Array(0); capacity = new Float32Array(0);
   trampled = new Float32Array(0); soil = new Float32Array(0); flower = new Float32Array(0);
+  cropped = new Uint8Array(0); recoverIn = new Float32Array(0);
   private growthClock = 0;
   constructor(public width: number, public height: number) { this.resize(width, height, false); }
   resize(width: number, height: number, preserve = true) {
-    const old = this.grass, oldCols = this.cols, oldRows = this.rows;
+    const old = this.grass, oldCropped = this.cropped, oldRecovery = this.recoverIn, oldTread = this.trampled, oldCols = this.cols, oldRows = this.rows;
     this.width = width; this.height = height;
-    this.cellW = width < 600 ? 6 : width > 1700 ? 9 : 8;
-    this.cellH = this.cellW + 2;
+    const base = width < 600 ? 6 : width > 1700 ? 9 : 8;
+    this.cellW = base * 2 / 3; this.cellH = (base + 2) * 2 / 3;
     this.cols = Math.ceil(width / this.cellW); this.rows = Math.ceil(height / this.cellH);
     const n = this.cols * this.rows;
     this.grass = new Float32Array(n); this.capacity = new Float32Array(n);
+    this.cropped = new Uint8Array(n); this.recoverIn = new Float32Array(n);
     this.trampled = new Float32Array(n); this.soil = new Float32Array(n); this.flower = new Float32Array(n);
     for (let r = 0; r < this.rows; r++) for (let c = 0; c < this.cols; c++) {
       const i = r * this.cols + c;
@@ -24,6 +26,7 @@ export class Pasture {
       if (preserve && oldCols && oldRows) {
         const from = Math.min(oldRows - 1, Math.floor(r / this.rows * oldRows)) * oldCols + Math.min(oldCols - 1, Math.floor(c / this.cols * oldCols));
         this.grass[i] = Math.min(this.capacity[i], old[from]);
+        this.cropped[i] = oldCropped[from]; this.recoverIn[i] = oldRecovery[from]; this.trampled[i] = oldTread[from];
       }
     }
   }
@@ -39,6 +42,7 @@ export class Pasture {
         if (d >= radius) continue;
         const i = r * this.cols + c, amount = Math.min(this.grass[i], dt * 0.055 * (1 - d / radius));
         this.grass[i] -= amount; eaten += amount;
+        if (this.grass[i] < 0.94) { this.cropped[i] = 1; this.recoverIn[i] = 90; }
       }
     }
     return eaten;
@@ -48,7 +52,7 @@ export class Pasture {
       for (let c = Math.max(0, Math.floor((x - radius) / this.cellW)); c <= Math.min(this.cols - 1, Math.floor((x + radius) / this.cellW)); c++) {
         if (Math.hypot((c + 0.5) * this.cellW - x, (r + 0.5) * this.cellH - y) > radius) continue;
         const i = r * this.cols + c;
-        this.grass[i] = this.capacity[i]; this.trampled[i] = 0;
+        this.grass[i] = this.capacity[i]; this.trampled[i] = 0; this.cropped[i] = 0; this.recoverIn[i] = 0;
       }
     }
   }
@@ -66,7 +70,9 @@ export class Pasture {
     const elapsed = this.growthClock; this.growthClock = 0;
     const decay = Math.exp(-elapsed * 0.65);
     for (let i = 0; i < this.grass.length; i++) {
-      this.grass[i] = Math.min(this.capacity[i], this.grass[i] + elapsed * 0.0045 * (0.7 + this.capacity[i] * 0.3));
+      if (this.recoverIn[i] > 0) this.recoverIn[i] = Math.max(0, this.recoverIn[i] - elapsed);
+      else this.grass[i] = Math.min(this.capacity[i], this.grass[i] + elapsed * 0.0009);
+      if (this.grass[i] >= 0.985 && this.recoverIn[i] === 0) this.cropped[i] = 0;
       this.trampled[i] *= decay;
     }
   }

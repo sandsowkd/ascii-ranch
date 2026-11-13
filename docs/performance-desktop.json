@@ -4,7 +4,7 @@
     900
   ],
   "sheep": 18,
-  "cells": 16200,
-  "measuredFPS": 59,
+  "cells": 36450,
+  "measuredFPS": 60,
   "note": "Local headless Chromium sample; mobile uses device emulation."
 }

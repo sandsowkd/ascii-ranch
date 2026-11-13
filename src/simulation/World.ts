@@ -159,12 +159,22 @@ export class World {
     for (const f of this.feed) Object.assign(f, this.clampPoint(f.x * sx, f.y * sy));
     this.barks.length = 0; this.marker = null;
   }
+  /** The flock follows its own center; no fixed invisible destination on the field. */
+  herdCenter() {
+    let x = 0, y = 0;
+    for (const s of this.sheep) { x += s.x; y += s.y; }
+    const n = this.sheep.length, b = this.bounds;
+    return { x: n ? x / n : this.width / 2, y: n ? y / n : this.height / 2,
+      radius: Math.max(50 * this.scale, Math.min(45 * Math.sqrt(n) * this.scale, Math.min(b.right - b.left, b.bottom - b.top) * 0.4)) };
+  }
   private freshGrass(s: Sheep) {
     let score = -Infinity, bestX = s.x, bestY = s.y;
+    const herd = this.herdCenter();
     for (let j = 0; j < 18; j++) {
       const a = this.random() * TAU, radius = 30 + this.random() * 85;
       const p = this.clampPoint(s.x + Math.cos(a) * radius * this.scale, s.y + Math.sin(a) * radius * this.scale);
       let quality = this.pasture.at(p.x, p.y) - Math.hypot(p.x - s.x, p.y - s.y) * 0.001;
+      if (this.sheep.length > 1) quality -= Math.max(0, Math.hypot(p.x - herd.x, p.y - herd.y) - herd.radius * 0.65) * 0.006;
       for (const other of this.sheep) if (other !== s && Math.hypot(other.x - p.x, other.y - p.y) < 60 * this.scale) quality -= 0.35;
       if (this.dog) quality -= Math.max(0, this.dogAvoidanceRadius() - Math.hypot(p.x - this.dog.x, p.y - this.dog.y)) * 0.015;
       if (Math.hypot(p.x - this.home.x, p.y - this.home.y) < 72 * this.scale) quality -= 2;
@@ -209,7 +219,7 @@ export class World {
     this.barks = this.barks.filter(b => b.age < ABILITIES.q.duration);
     if (this.marker) { this.marker.age += dt; if (this.marker.age > 1.5) this.marker = null; }
     this.stepDog(dt);
-    const dog = this.dog, scale = this.scale;
+    const dog = this.dog, scale = this.scale, herd = this.herdCenter();
     for (const s of this.sheep) {
       s.timer -= dt; s.hunger = Math.min(1, s.hunger + dt * 0.004);
       let desiredX = 0, desiredY = 0, speed = s.speed * scale;
@@ -238,6 +248,13 @@ export class World {
         } else { desiredX = food.x - s.x; desiredY = food.y - s.y; speed = Math.min(SPEEDS.sheepFood, s.speed * 1.35) * scale; }
       } else {
         if (s.state === 'startled' || s.state === 'following') this.freshGrass(s);
+        const hx = s.x - herd.x, hy = s.y - herd.y, distance = Math.hypot(hx, hy);
+        if (this.sheep.length > 1 && distance > herd.radius) {
+          // Strays stroll back to the herd. Food and fear take precedence above.
+          s.state = 'walking'; s.timer = 12;
+          s.goalX = herd.x + hx / distance * herd.radius * 0.65;
+          s.goalY = herd.y + hy / distance * herd.radius * 0.65;
+        }
         if (s.state === 'grazing') {
           const mouthX = s.x + Math.cos(s.heading) * 25 * scale, mouthY = s.y + Math.sin(s.heading) * 25 * scale;
           const amount = this.pasture.bite(mouthX, mouthY, dt, 21 * scale);
