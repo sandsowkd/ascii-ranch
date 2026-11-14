@@ -33,7 +33,7 @@ export class Controller {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.altKey || e.ctrlKey || e.metaKey || e.repeat) return;
       if (e.code === 'Space' && e.target instanceof HTMLButtonElement) return;
       const key = e.key.toLowerCase();
-      if (key === 'f') { e.preventDefault(); if (!this.settings.hidden) this.setSettingsOpen(false); this.cancel(); this.regrowMode = false; this.fenceMode = !this.fenceMode; this.sync(); renderer.render(); }
+      if (key === 'f') { e.preventDefault(); if (!this.settings.hidden) this.setSettingsOpen(false); this.cancel(); this.regrowMode = false; this.fenceMode = !this.fenceMode; this.sync(); renderer.render(); this.toast(this.fenceMode ? 'drag to build fences. f or escape to finish.' : 'fence tool off.'); }
       if (e.key === 'Backspace' && this.settings.hidden) { e.preventDefault(); this.cancel(); world.undoFence(); renderer.render(); }
       if (['q', 'w', 'e', 'r'].includes(key)) { e.preventDefault(); this.cast(key as Ability); }
       if (e.code === 'Space') { e.preventDefault(); this.toggleRegrow(); }
@@ -77,8 +77,7 @@ export class Controller {
     if (this.world.fencePreview) {
       const rail = this.world.fenceEndpoints({ x: this.startX, y: this.startY }, p);
       const added = this.world.addFence(rail.a, rail.b);
-      if (added) this.fenceMode = false;
-      this.cancel(); this.sync(); this.renderer.render(); this.toast(added ? 'fence placed. backspace to undo.' : 'leave a little room around the animals and pen.');
+      this.cancel(); this.sync(); this.renderer.render(); this.toast(added ? 'fence placed. drag another; f to finish.' : 'make a longer fence and leave the pen entrance clear.');
       if (this.canvas.hasPointerCapture(e.pointerId)) this.canvas.releasePointerCapture(e.pointerId);
       return;
     }

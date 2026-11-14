@@ -81,7 +81,7 @@ export class BirdLife {
       const landing = hawk ? null : this.pickLanding(width, height, pasture, animals, dog, undefined, posts, fence, fieldFences);
       if (hawk || landing) {
         const id = this.nextId++, h = (n: number) => hash3(id, n, 781), left = h(1) < 0.5;
-        const prey = hawk ? mice?.mice.filter(m => mouseExposed(m, animals, scale)) : undefined;
+        const prey = hawk ? mice?.mice.filter(m => m.x > 0 && m.x < width && m.y > 0 && m.y < height && mouseExposed(m, animals, scale)) : undefined;
         const target = prey?.length ? prey[Math.floor(h(7) * prey.length)] : undefined;
         this.birds.push({ id, x: left ? -35 : width + 35, y: height * (0.16 + h(2) * 0.35),
           kind: hawk ? 'hawk' : 'songbird', targetMouseId: target?.id, catchRoll: hawk ? h(8) : undefined,

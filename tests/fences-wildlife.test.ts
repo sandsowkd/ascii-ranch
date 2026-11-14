@@ -22,13 +22,16 @@ describe('drawn fences', () => {
     expect(fences.obstacles(30)).not.toBe(obstacles); expect(fences.undo()).toBe(true); expect(fences.rails).toHaveLength(1);
     fences.reset(); expect(fences.posts).toHaveLength(0); expect(fences.undo()).toBe(false);
   });
-  it('rejects tiny or occupied rails and preserves the recall gate passage', () => {
-    const w = new World(1400, 1000, 1, 0), s = w.sheep[0]; Object.assign(s, { x: 500, y: 450 });
-    expect(w.addFence({ x: 450, y: 450 }, { x: 550, y: 450 })).toBe(false);
-    expect(w.addFence({ x: 500, y: 450 }, { x: 600, y: 450 })).toBe(false);
+  it('moves sheep and lambs onto clear sides of a new rail, but protects the recall passage', () => {
+    const w = new World(1400, 1000, 2, 1);
+    Object.assign(w.sheep[0], { x: 494, y: 420 }); Object.assign(w.sheep[1], { x: 506, y: 510 }); Object.assign(w.lambs[0], { x: 500, y: 590 });
+    expect(w.addFence({ x: 500, y: 300 }, { x: 500, y: 650 })).toBe(true);
+    expect(w.sheep[0].x).toBeLessThan(500); expect(w.sheep[1].x).toBeGreaterThan(500);
+    for (const s of w.animals) expect(w.fieldFences.clear(s, 49 * s.size)).toBe(true);
+    for (let i = 0; i < 120; i++) { w.step(1 / 60); for (const s of w.animals) expect(w.fieldFences.clear(s, 49 * s.size - 0.2)).toBe(true); }
     expect(w.addFence({ x: 700, y: 300 }, { x: 700, y: 310 })).toBe(false);
     expect(w.addFence({ x: w.pen.left - 100, y: w.home.y - 90 }, { x: w.pen.left - 100, y: w.home.y + 50 })).toBe(false);
-    expect(w.addFence({ x: 700, y: 260 }, { x: 700, y: 600 })).toBe(true); expect(w.fieldFences.rails).toHaveLength(1);
+    expect(w.addFence({ x: 700, y: 260 }, { x: 700, y: 600 })).toBe(true); expect(w.fieldFences.rails).toHaveLength(2);
   });
   it('routes sheep toward food around a rail and never moves a body or muzzle through it', () => {
     const w = new World(1400, 1000, 1, 0), s = w.sheep[0]; Object.assign(s, { x: 500, y: 450, heading: 0, timer: 100 });
@@ -39,6 +42,12 @@ describe('drawn fences', () => {
       const q = closestOnFence(s, rail); expect(Math.hypot(q.x - s.x, q.y - s.y)).toBeGreaterThanOrEqual(49 * s.size + 5.8);
     }
     expect(s.x).toBeGreaterThan(700); expect(largestY).toBeGreaterThan(540); expect(s.ate).toBeGreaterThan(0);
+  });
+  it('leaves sheep beside an existing rail in place when another fence is built elsewhere', () => {
+    const w = new World(1400, 1000, 1, 0), s = w.sheep[0]; Object.assign(s, { x: 300, y: 450 });
+    expect(w.addFence({ x: 500, y: 300 }, { x: 500, y: 650 })).toBe(true);
+    Object.assign(s, { x: 500 - (49 * s.size + 6.5), y: 450 }); const before = { x: s.x, y: s.y };
+    expect(w.addFence({ x: 900, y: 300 }, { x: 900, y: 650 })).toBe(true); expect({ x: s.x, y: s.y }).toEqual(before);
   });
   it('routes the dog around a rail during movement and sprint, and reset clears construction', () => {
     const w = new World(1400, 1000, 0, 0); w.toggleDog();
@@ -96,7 +105,25 @@ describe('mice and hawks', () => {
     expect(births.length).toBeGreaterThan(6); expect(total / (300 * 30)).toBeLessThan(1.5);
     for (let i = 1; i < births.length; i++) expect(births[i] - births[i - 1]).toBeGreaterThanOrEqual(25.9);
   });
-  it('makes a complete banked loop before a curved dive and a brief feet-first catch', () => {
+  it('mice enter from an edge and run completely offscreen instead of disappearing when their visit expires', () => {
+    const life = new MouseLife(), p = new Pasture(1200, 900);
+    for (let i = 0; i < 181; i++) life.step(1 / 60, 1200, 900, p, null);
+    const entered = life.mice[0]; expect(entered.x < 0 || entered.x > 1200).toBe(true);
+    expect(entered.state).toBe('entering');
+    for (let i = 0; i < 180; i++) life.step(1 / 60, 1200, 900, p, null);
+    expect(entered.x).toBeGreaterThan(0); expect(entered.x).toBeLessThan(1200);
+    Object.assign(entered, { x: 600, y: 450, age: entered.life, state: 'resting' });
+    life.step(1 / 60, 1200, 900, p, null); expect(life.mice).toContain(entered); expect(entered.state).toBe('leaving');
+    let prior = { x: entered.x, y: entered.y }, removed = false;
+    for (let i = 0; i < 12 * 60; i++) {
+      life.step(1 / 60, 1200, 900, p, null);
+      expect(Math.hypot(entered.x - prior.x, entered.y - prior.y)).toBeLessThanOrEqual(1.41); prior = { x: entered.x, y: entered.y };
+      if (!life.mice.includes(entered)) { removed = true; break; }
+      expect(entered.state).toBe('leaving');
+    }
+    expect(removed).toBe(true); expect(entered.x < -25 || entered.x > 1225 || entered.y < -25 || entered.y > 925).toBe(true);
+  });
+  it('takes a smooth variable hunting arc before a curved dive and a brief feet-first catch', () => {
     const life = new BirdLife(), mice = new MouseLife(), p = new Pasture(1200, 900), b = hawk(0.1);
     Object.assign(b, { x: 200, y: 400, state: 'soaring', altitude: 1.8 }); life.birds.push(b); mice.mice.push(mouse());
     const states = new Set<string>(); let movement = 0, circleSweep = 0;
@@ -108,9 +135,26 @@ describe('mice and hawks', () => {
       circleSweep = Math.max(circleSweep, b.hunt?.sweep ?? 0);
       if (b.state === 'striking' && b.age < 0.2) expect(mice.mice).toHaveLength(1);
     }
-    expect([...states]).toEqual(['soaring', 'circling', 'swooping', 'striking']); expect(circleSweep).toBeGreaterThanOrEqual(Math.PI * 2);
-    expect(b.state).toBe('departing'); expect(b.caughtMouse).toBe(true); expect(mice.mice).toHaveLength(0); expect(movement).toBeGreaterThan(800);
+    expect([...states]).toEqual(['soaring', 'circling', 'swooping', 'striking']); expect(circleSweep).toBeGreaterThanOrEqual(Math.PI);
+    expect(circleSweep).toBeLessThan(Math.PI * 4 + 0.05); expect(circleSweep).toBeGreaterThanOrEqual(b.hunt!.plannedSweep!);
+    expect(b.state).toBe('departing'); expect(b.caughtMouse).toBe(true); expect(mice.mice).toHaveLength(0); expect(movement).toBeGreaterThan(500);
     const low = b.altitude; life.step(0.1, 1200, 900, p, [], null, [], [], undefined, mice); expect(b.altitude).toBeGreaterThan(low);
+  });
+  it('varies hunt radius and arc length, and never starts a search loop without exposed prey', () => {
+    const p = new Pasture(1200, 900), mice = new MouseLife(); mice.mice.push(mouse());
+    const radii: number[] = [], sweeps: number[] = [];
+    for (let id = 2; id < 32; id += 3) {
+      const b = { ...hawk(0), id, x: -35, y: 300, state: 'soaring' as const, heading: 0, altitude: 1.8 };
+      const life = new BirdLife(); life.birds.push(b); life.step(1 / 60, 1200, 900, p, [], null, [], [], undefined, mice);
+      radii.push(b.hunt!.radius); sweeps.push(b.hunt!.plannedSweep!);
+    }
+    expect(Math.max(...radii) - Math.min(...radii)).toBeGreaterThan(35);
+    expect(Math.min(...sweeps)).toBeLessThan(Math.PI * 1.6); expect(Math.max(...sweeps)).toBeGreaterThan(Math.PI * 3);
+    for (const hidden of [false, true]) {
+      const life = new BirdLife(), b: Bird = { ...hawk(0), x: -35, y: 300, state: 'soaring', heading: 0, targetMouseId: hidden ? 0 : undefined };
+      life.birds.push(b); const animals = hidden ? [{ x: 600, y: 450, size: 0.55 }] : [];
+      for (let i = 0; i < 120; i++) { life.step(1 / 60, 1200, 900, p, animals, null, [], [], undefined, mice); expect(b.hunt).toBeUndefined(); expect(b.state).not.toBe('circling'); }
+    }
   });
   it('has deep slow wingbeats, broad inner wings and separate feather tips', () => {
     const b = hawk(0); b.state = 'soaring';

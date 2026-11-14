@@ -40,11 +40,11 @@ export class Renderer {
     this.repaintAll = true;
     const { cellW, cellH } = this.world.pasture;
     this.aw = Math.ceil(cellW * this.dpr); this.ah = Math.ceil(cellH * this.dpr);
-    this.atlas.width = this.aw * this.atlasCols; this.atlas.height = this.ah * 32 * 13;
+    this.atlas.width = this.aw * this.atlasCols; this.atlas.height = this.ah * 32 * 14;
     const ctx = this.atlas.getContext('2d')!;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `400 ${this.ah * 0.82}px "Geist Mono", monospace`;
-    const lows = [[48, 72, 35], [28, 24, 16], [126, 128, 105], [114, 120, 97], [99, 73, 43], [69, 69, 51], [32, 51, 29], [86, 47, 26], [28, 28, 27], [40, 111, 126], [138, 66, 74], [144, 113, 42], [190, 103, 138]];
-    const highs = [[149, 182, 100], [75, 59, 34], [248, 243, 219], [255, 255, 245], [230, 182, 115], [229, 208, 136], [84, 123, 54], [207, 139, 79], [88, 84, 76], [116, 222, 218], [245, 153, 135], [246, 209, 107], [255, 192, 207]];
+    const lows = [[48, 72, 35], [28, 24, 16], [126, 128, 105], [114, 120, 97], [99, 73, 43], [69, 69, 51], [32, 51, 29], [86, 47, 26], [28, 28, 27], [40, 111, 126], [138, 66, 74], [144, 113, 42], [190, 103, 138], [67, 72, 76]];
+    const highs = [[149, 182, 100], [75, 59, 34], [248, 243, 219], [255, 255, 245], [230, 182, 115], [229, 208, 136], [84, 123, 54], [207, 139, 79], [88, 84, 76], [116, 222, 218], [245, 153, 135], [246, 209, 107], [255, 192, 207], [193, 197, 201]];
     for (let family = 0; family < lows.length; family++) for (let level = 0; level < 32; level++) {
       const t = level / 31, lo = lows[family], hi = highs[family];
       ctx.fillStyle = `rgb(${Math.round(lo[0] + (hi[0] - lo[0]) * t)},${Math.round(lo[1] + (hi[1] - lo[1]) * t)},${Math.round(lo[2] + (hi[2] - lo[2]) * t)})`;
@@ -52,11 +52,11 @@ export class Renderer {
         const eye = family === 3 && GLYPHS[g] === 'O', outline = family === 3 && '/\\|-()'.includes(GLYPHS[g]);
         const timber = family === 7 && '-=|/\\'.includes(GLYPHS[g]);
         const pinkTail = family === 12;
-        ctx.font = `${eye ? 500 : outline || timber || pinkTail ? 600 : 400} ${this.ah * (eye ? 0.98 : outline || pinkTail ? 0.92 : timber ? 0.88 : 0.82)}px "Geist Mono", monospace`;
+        ctx.font = `${timber ? 700 : eye ? 500 : outline || pinkTail ? 600 : 400} ${this.ah * (eye ? 0.98 : outline || pinkTail ? 0.92 : timber ? 0.94 : 0.82)}px "Geist Mono", monospace`;
         // Tiny vertical stems can have very little ink at 1× resolution. A
         // fractional stroke keeps the wood brown and legible in a single cell.
         if (timber || pinkTail) {
-          ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = this.dpr * (pinkTail ? 0.25 : 0.45);
+          ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = this.dpr * (pinkTail ? 0.25 : 0.8);
           ctx.strokeText(GLYPHS[g], g * this.aw + this.aw / 2, (family * 32 + level) * this.ah + this.ah / 2 + this.dpr * 0.35);
         }
         ctx.fillText(GLYPHS[g], g * this.aw + this.aw / 2, (family * 32 + level) * this.ah + this.ah / 2 + this.dpr * 0.35);
@@ -238,24 +238,24 @@ export class Renderer {
     dot(-12, 0, '~', 0.7); dot(-17, 0, '-', 0.5);
   }
   private mouse(m: Mouse) {
-    const w = this.world, p = w.pasture, scale = w.scale, dx = Math.cos(m.heading), dy = Math.sin(m.heading), sx = -dy, sy = dx;
+    const w = this.world, p = w.pasture, scale = w.scale * 0.7, dx = Math.cos(m.heading), dy = Math.sin(m.heading), sx = -dy, sy = dx;
     const dot = (along: number, side: number, glyph: string, family: number, level: number) => this.put(m.x + (dx * along + sx * side) * scale, m.y + (dy * along + sy * side) * scale, glyph, level, family);
     const wiggle = Math.sin(w.time * 13 + m.phase) * (m.state === 'darting' ? 1.8 : 0.4);
     // A short pink tail joins a rounded body; the face has its own closed rim.
-    dot(-22, wiggle + 1, '~', 12, 0.9); dot(-17, 0, '~', 12, 0.95);
+    dot(-21, wiggle + 1, '~', 12, 0.85); dot(-14, 0, '~', 12, 0.85);
     for (let row = Math.floor((m.y - 22 * scale) / p.cellH); row <= Math.ceil((m.y + 22 * scale) / p.cellH); row++) for (let col = Math.floor((m.x - 22 * scale) / p.cellW); col <= Math.ceil((m.x + 22 * scale) / p.cellW); col++) {
       const x = (col + 0.5) * p.cellW, y = (row + 0.5) * p.cellH, ox = (x - m.x) / scale, oy = (y - m.y) / scale;
       const along = ox * dx + oy * dy, side = ox * sx + oy * sy;
       const body = ((along + 5) / 10) ** 2 + (side / 7.5) ** 2;
       const head = ((along - 7) / 9) ** 2 + (side / 6.5) ** 2;
-      if (body <= 1) this.put(x, y, body > 0.65 ? ':' : '%', 0.65, 2);
-      if (head <= 1) this.put(x, y, head > 0.55 ? lineGlyph(-side, along - 7) : ':', head > 0.55 ? 0.95 : 0.65, 2);
+      if (body <= 1) this.put(x, y, body > 0.65 ? ':' : '#', 0.88, 13);
+      if (head <= 1) this.put(x, y, head > 0.55 ? lineGlyph(-side, along - 7) : '%', head > 0.55 ? 1 : 0.82, 13);
     }
     for (const side of [-1, 1]) {
-      dot(14, side * 8, side < 0 ? '/' : '\\', 2, 0.8);
-      dot(-7, side * 8, '.', 2, 0.7);
+      dot(14, side * 7, side < 0 ? '/' : '\\', 13, 0.8);
+      dot(-7, side * 7, '.', 13, 0.7);
     }
-    for (const side of [-1, 1]) { dot(1, side * 11, 'O', 3, 0.95); dot(10, side * 5, 'o', 3, 1); }
+    for (const side of [-1, 1]) { dot(1, side * 10, 'o', 13, 1); dot(10, side * 4, '.', 3, 0.9); }
     dot(17, 0, '.', 12, 1);
   }
   private hawk(b: Bird) {
@@ -305,21 +305,10 @@ export class Renderer {
   }
   private pen() {
     const w = this.world, p = w.pasture, b = w.pen;
-    for (const rail of w.fieldFences.rails) this.stroke(rail.a.x, rail.a.y, rail.b.x, rail.b.y, 0.85, 7, 2);
-    for (const rail of w.fence.rails) {
-      if (Math.abs(rail.a.y - rail.b.y) < 1) {
-        const row = Math.floor(rail.a.y / p.cellH);
-        for (let c = Math.floor(Math.min(rail.a.x, rail.b.x) / p.cellW); c <= Math.floor(Math.max(rail.a.x, rail.b.x) / p.cellW); c++)
-          this.put((c + 0.5) * p.cellW, (row + 0.5) * p.cellH, '-', 0.85, 7, 2);
-      } else {
-        const col = Math.floor(rail.a.x / p.cellW);
-        for (let r = Math.floor(Math.min(rail.a.y, rail.b.y) / p.cellH); r <= Math.floor(Math.max(rail.a.y, rail.b.y) / p.cellH); r++)
-          this.put((col + 0.5) * p.cellW, (r + 0.5) * p.cellH, '|', 0.85, 7, 2);
-      }
-    }
+    for (const rail of [...w.fieldFences.rails, ...w.fence.rails]) this.woodRail(rail.a, rail.b, 0.9, 2);
     const door = gateLeaf(b, w.gateOpen), dx = door.b.x - door.a.x, dy = door.b.y - door.a.y;
     const length = Math.hypot(dx, dy), nx = dy / length, ny = -dx / length;
-    this.stroke(door.a.x, door.a.y, door.b.x, door.b.y, 0.85, 7, 2);
+    this.woodRail(door.a, door.b, 0.9, 2);
     for (const t of [0.25, 0.5, 0.75]) {
       const x = door.a.x + dx * t, y = door.a.y + dy * t;
       this.stroke(x - nx * p.cellW, y - ny * p.cellW, x + nx * p.cellW, y + ny * p.cellW, 0.85, 7, 2);
@@ -330,11 +319,21 @@ export class Renderer {
       for (const dy of [-1, 0]) for (const dx of [-1, 0, 1]) this.put((c + dx + 0.5) * p.cellW, (r + dy + 0.5) * p.cellH, dx === 0 ? '#' : dx < 0 ? '[' : ']', dx === 0 ? 0.95 : 0.75, 5, 3);
     }
   }
+  private woodRail(a: { x: number; y: number }, b: { x: number; y: number }, level: number, priority: number, family = 7, wide = false) {
+    const p = this.world.pasture, dx = b.x - a.x, dy = b.y - a.y, length = Math.hypot(dx, dy) || 1;
+    const glyph = Math.abs(dx) > Math.abs(dy) * 2 ? '=' : lineGlyph(dx, dy);
+    const steps = Math.max(1, Math.ceil(length / (Math.min(p.cellW, p.cellH) * 0.45)));
+    // Dense sampling covers every row of a vertical rail. The draft has a
+    // two-cell brush, rather than gaps that disappear between grass glyphs.
+    for (let j = 0; j <= steps; j++) for (const offset of wide ? [-0.55, 0, 0.55] : [0]) {
+      const x = a.x + dx * j / steps - dy / length * offset * p.cellW, y = a.y + dy * j / steps + dx / length * offset * p.cellH;
+      this.put(x, y, glyph, level, family, priority);
+    }
+  }
   private fencePreview() {
     const draft = this.world.fencePreview; if (!draft) return;
-    const { a, b } = draft, steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / (this.world.pasture.cellW * 1.5)));
-    const glyph = lineGlyph(b.x - a.x, b.y - a.y), family = draft.valid ? 7 : 10;
-    for (let j = 0; j <= steps; j++) if (j % 3 !== 2) this.put(a.x + (b.x - a.x) * j / steps, a.y + (b.y - a.y) * j / steps, glyph, 1, family, 9);
+    const { a, b } = draft, family = draft.valid ? 7 : 10;
+    this.woodRail(a, b, 1, 9, family, true);
     for (const p of [a, b]) this.put(p.x, p.y, '+', 1, family, 9);
   }
   private barkComic() {

@@ -189,17 +189,39 @@ export class World {
   }
   canAddFence(a: Point, b: Point) {
     if (![a.x, a.y, b.x, b.y].every(Number.isFinite) || Math.hypot(b.x - a.x, b.y - a.y) < 32 * this.scale) return false;
-    const animals = this.animals.map(s => ({ x: s.x, y: s.y, radius: (49 * s.size + 7) * this.scale }));
-    if (this.dog) animals.push({ x: this.dog.x, y: this.dog.y, radius: 57 * this.scale });
     // Leave the gate's full straight passage free for recall and release.
     const passage: Obstacle[] = [];
     for (let x = this.penApproach.x; x <= this.home.x; x += 12 * this.scale) passage.push({ x, y: this.home.y, radius: 56 * this.scale });
-    return animals.concat(this.fence.obstacles, passage).every(o => { const q = closestOnFence(o, { a, b }); return Math.hypot(o.x - q.x, o.y - q.y) > o.radius + 0.2; });
+    return this.fence.obstacles.concat(passage).every(o => { const q = closestOnFence(o, { a, b }); return Math.hypot(o.x - q.x, o.y - q.y) > o.radius + 0.2; });
   }
   addFence(a: Point, b: Point) {
     const rail = this.fenceEndpoints(a, b);
     if (!this.canAddFence(rail.a, rail.b)) return false;
-    this.fieldFences.add(rail.a, rail.b); this.invalidateFenceRoutes(); return true;
+    this.fieldFences.add(rail.a, rail.b);
+    // Construction gently clears the occupied strip instead of rejecting a
+    // player's drag. Choose the nearest usable side, with room for neighbours.
+    const length = Math.hypot(rail.b.x - rail.a.x, rail.b.y - rail.a.y), tx = (rail.b.x - rail.a.x) / length, ty = (rail.b.y - rail.a.y) / length;
+    const animals = this.animals;
+    for (const s of animals) {
+      const padding = (49 * s.size + 2) * this.scale;
+      const near = closestOnFence(s, rail), radius = padding + 7 * this.scale;
+      if (Math.hypot(s.x - near.x, s.y - near.y) >= padding + 6 * this.scale) continue;
+      let best: Point | null = null, score = Infinity;
+      for (const side of [-1, 1]) for (const along of [0, -38, 38, -76, 76]) {
+        const p = this.clearGrassPoint({ x: near.x - ty * side * radius + tx * along * this.scale, y: near.y + tx * side * radius + ty * along * this.scale }, padding);
+        if (!p) continue;
+        const crowd = animals.reduce((sum, other) => other === s ? sum : sum + Math.max(0, (29 * (s.size + other.size) + 5) * this.scale - Math.hypot(other.x - p.x, other.y - p.y)) * 3, 0);
+        const cost = Math.hypot(p.x - s.x, p.y - s.y) + crowd;
+        if (cost < score) { best = p; score = cost; }
+      }
+      if (best) Object.assign(s, best, { goalX: best.x, goalY: best.y, vx: 0, vy: 0, timer: 0, searchIn: 0 });
+    }
+    const d = this.dog;
+    if (d && !d.atHome && !this.fieldFences.clear(d, 49 * this.scale)) {
+      const p = this.dogPoint(d.x, d.y); Object.assign(d, p, { vx: 0, vy: 0 });
+      const goal = this.dogPoint(d.targetX, d.targetY); d.targetX = goal.x; d.targetY = goal.y;
+    }
+    this.invalidateFenceRoutes(); return true;
   }
   undoFence() { const removed = this.fieldFences.undo(); if (removed) this.invalidateFenceRoutes(); return removed; }
   private invalidateFenceRoutes() {

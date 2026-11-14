@@ -3,28 +3,47 @@ import { test, expect, type Page } from '@playwright/test';
 const state = (page: Page): Promise<any> => page.evaluate(() => (window as any).__meadow.snapshot());
 test.beforeEach(async ({ page }) => { await page.goto('/?debug'); await page.evaluate(() => document.fonts.ready); });
 
-test('pressing F once arms a straight fence with a preview, consumes the dog click, and supports undo', async ({ page }, info) => {
+test('F keeps the fence tool active across drags, moves occupied sheep aside, and previews a thick continuous brown rail', async ({ page }, info) => {
   await page.evaluate(() => { const a = (window as any).__meadow; a.world.reset(0, 0); a.world.toggleDog(); a.controller.setPaused(true); });
   const before = await state(page), x = before.width * 0.42, y1 = before.height * 0.28, y2 = before.height * 0.6;
+  await page.evaluate(({ x, y }) => { const w = (window as any).__meadow.world; w.addSheep(); w.addLamb(); for (const [i, s] of w.animals.entries()) Object.assign(s, { x: x + i * 5, y: y + i * 55 }); }, { x, y: (y1 + y2) / 2 });
   await page.locator('#settings-toggle').click(); await page.keyboard.press('f'); await expect(page.locator('#settings-panel')).toBeHidden(); expect((await state(page)).fenceMode).toBe(true);
   await page.mouse.move(x, y1); await page.mouse.down(); await page.mouse.move(x, y2, { steps: 12 });
   const draft = await state(page); expect(draft.fencePreview.valid).toBe(true); expect(draft.fences).toHaveLength(0);
+  const preview = await page.evaluate(({ x, y1, y2 }) => {
+    const a = (window as any).__meadow, p = a.world.pasture, rows = [];
+    for (let y = y1 + p.cellH * 2; y < y2 - p.cellH * 2; y += p.cellH) {
+      let brown = 0; for (let c = Math.floor(x / p.cellW) - 2; c <= Math.floor(x / p.cellW) + 2; c++) { const cell = a.renderer.cellAt((c + 0.5) * p.cellW, y); if (cell.family === 7 && cell.priority === 9) brown++; }
+      rows.push(brown);
+    }
+    return rows;
+  }, { x, y1, y2 });
+  for (const width of preview) expect(width).toBeGreaterThanOrEqual(2);
+  await page.screenshot({ path: `docs/${info.project.name}-fence-preview.png` });
   expect(draft.dog.targetX).toBe(before.dog.targetX); expect(draft.dog.targetY).toBe(before.dog.targetY);
   await page.mouse.up();
-  const built = await state(page); expect(built.fences).toHaveLength(1); expect(built.fencePreview).toBeNull(); expect(built.fenceMode).toBe(false);
+  const built = await state(page); expect(built.fences).toHaveLength(1); expect(built.fencePreview).toBeNull(); expect(built.fenceMode).toBe(true);
+  for (const s of [...built.sheep, ...built.lambs]) expect(Math.abs(s.x - x)).toBeGreaterThan((49 * s.size + 5.5) * (before.width < 600 ? 0.79 : 1));
   expect(built.fences[0].a.x).toBeCloseTo(built.fences[0].b.x); expect(built.fencePosts.length).toBeGreaterThan(before.fencePosts.length + 1);
   const wood = await page.evaluate(({ x, y }) => (window as any).__meadow.renderer.cellAt(x, y), { x, y: (y1 + y2) / 2 });
   expect([5, 7]).toContain(wood.family); expect(wood.priority).toBeGreaterThanOrEqual(2);
+  // A second fence requires another drag, not another F press.
+  const y3 = before.height * 0.24;
+  await page.mouse.move(before.width * 0.2, y3); await page.mouse.down(); await page.mouse.move(before.width * 0.7, y3, { steps: 8 }); await page.mouse.up();
+  expect((await state(page)).fences).toHaveLength(2);
+  const horizontal = await page.evaluate(({ x, y }) => (window as any).__meadow.renderer.cellAt(x, y), { x: before.width * 0.45, y: y3 });
+  expect(horizontal).toMatchObject({ glyph: '=', family: 7, priority: 2 });
   await page.screenshot({ path: `docs/${info.project.name}-drawn-fence.png` });
-  await page.keyboard.press('f'); await page.mouse.move(x + 55, y1); await page.mouse.down(); await page.mouse.move(x + 55, y2);
-  await page.keyboard.press('Escape'); await page.mouse.up(); expect((await state(page)).fences).toHaveLength(1);
+  await page.mouse.move(x + 55, y1); await page.mouse.down(); await page.mouse.move(x + 55, y2);
+  await page.keyboard.press('Escape'); await page.mouse.up(); expect((await state(page)).fences).toHaveLength(2); expect((await state(page)).fenceMode).toBe(false);
+  await page.keyboard.press('Backspace'); expect((await state(page)).fences).toHaveLength(1);
   await page.keyboard.press('Backspace'); expect((await state(page)).fences).toHaveLength(0);
   await page.keyboard.press('p'); await page.mouse.click(before.width * 0.3, before.height * 0.4, { button: 'right' });
   expect((await state(page)).feed).toHaveLength(1); expect((await state(page)).dog.atHome).toBe(true);
   await page.mouse.click(before.width * 0.3, before.height * 0.4); expect((await state(page)).dog.atHome).toBe(false);
 });
 
-test('mouse faces stay distinct at every heading and the hawk visibly folds and spreads its smaller wings', async ({ page }, info) => {
+test('mice are compact gray silhouettes at every heading and the hawk visibly folds and spreads its wings', async ({ page }, info) => {
   const result = await page.evaluate(() => {
     const a = (window as any).__meadow, w = a.world, r = a.renderer, p = w.pasture;
     w.reset(0, 0); w.paused = true; p.flower.fill(-1);
@@ -32,9 +51,13 @@ test('mouse faces stay distinct at every heading and the hawk visibly folds and 
     w.mouseLife.mice = [m]; const faces: any[] = [];
     for (let i = 0; i < 8; i++) {
       m.heading = i * Math.PI / 4; r.render();
-      const dx = Math.cos(m.heading), dy = Math.sin(m.heading), scale = w.scale;
-      const cell = (along: number, side: number) => r.cellAt(m.x + (dx * along - dy * side) * scale, m.y + (dy * along + dx * side) * scale);
-      faces.push({ ears: [-1, 1].map(s => cell(1, s * 11)), eyes: [-1, 1].map(s => cell(10, s * 5)), nose: cell(17, 0) });
+      let gray = 0, pink = 0, minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (let row = Math.floor((m.y - 24) / p.cellH); row <= Math.ceil((m.y + 24) / p.cellH); row++) for (let col = Math.floor((m.x - 24) / p.cellW); col <= Math.ceil((m.x + 24) / p.cellW); col++) {
+        const c = r.cellAt((col + 0.5) * p.cellW, (row + 0.5) * p.cellH);
+        if (c.family === 13) gray++; if (c.family === 12) pink++;
+        if (c.family === 13 || c.family === 12 || c.family === 3) { minX = Math.min(minX, col * p.cellW); maxX = Math.max(maxX, col * p.cellW); minY = Math.min(minY, row * p.cellH); maxY = Math.max(maxY, row * p.cellH); }
+      }
+      faces.push({ gray, pink, span: Math.max(maxX - minX, maxY - minY) / w.scale });
     }
     w.mouseLife.mice = []; w.birdLife.birds = [{ id: 2, kind: 'hawk', x: w.width * 0.5, y: w.height * 0.5, heading: 0, phase: 0, state: 'soaring', age: 3, altitude: 1,
       landingX: 0, landingY: 0, exitX: 2000, exitY: 150, restFor: 0, color: 2 }];
@@ -50,9 +73,8 @@ test('mouse faces stay distinct at every heading and the hawk visibly folds and 
     return { faces, poses };
   });
   for (const face of result.faces) {
-    for (const ear of face.ears) expect(ear).toMatchObject({ glyph: 'O', family: 3 });
-    for (const eye of face.eyes) expect(eye).toMatchObject({ glyph: 'o', family: 3 });
-    expect(face.nose).toMatchObject({ glyph: '.', family: 12 });
+    expect(face.gray).toBeGreaterThanOrEqual(4); expect(face.pink).toBeGreaterThanOrEqual(1); expect(face.gray).toBeGreaterThan(face.pink);
+    expect(face.span).toBeLessThan(36);
   }
   expect(result.poses[0].span - result.poses[1].span).toBeGreaterThan(15);
   expect(result.poses[0].span).toBeLessThan(100); expect(result.poses[0].ink).not.toEqual(result.poses[1].ink);
@@ -77,7 +99,7 @@ test('birds perch centrally on drawn posts; tiny pink-tailed mice and broad-wing
     w.birdLife.birds.push(h); r.render();
     let tail = 0, body = 0, hawkCells = 0, minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (let y = my - 12; y <= my + 12; y += p.cellH) for (let x = mx - 26; x <= mx + 15; x += p.cellW) {
-      const cell = r.cellAt(x, y); if (cell.family === 12) tail++; if (cell.family === 2) body++;
+      const cell = r.cellAt(x, y); if (cell.family === 12) tail++; if (cell.family === 13) body++;
     }
     for (let row = 0; row < p.rows; row++) for (let col = 0; col < p.cols; col++) {
       const cell = r.cellAt((col + 0.5) * p.cellW, (row + 0.5) * p.cellH);
@@ -96,7 +118,7 @@ test('birds perch centrally on drawn posts; tiny pink-tailed mice and broad-wing
     a.controller.sync(); r.render();
     return { tail, body, pinkPixels, hawkCells, hawkSpan: Math.max(maxX - minX, maxY - minY), legs, cover };
   });
-  expect(result.tail).toBeGreaterThanOrEqual(2); expect(result.body).toBeGreaterThanOrEqual(2); expect(result.hawkCells).toBeGreaterThan(35);
+  expect(result.tail).toBeGreaterThanOrEqual(1); expect(result.body).toBeGreaterThanOrEqual(4); expect(result.hawkCells).toBeGreaterThan(35);
   expect(result.hawkSpan).toBeGreaterThan(45); expect(result.hawkSpan).toBeLessThan(100); expect(result.cover).toBe(2);
   expect(result.pinkPixels).toBeGreaterThan(2);
   for (const leg of result.legs) expect(leg).toMatchObject({ glyph: '|', family: 3, priority: 8 });
