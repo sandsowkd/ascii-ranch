@@ -1,1 +1,3 @@
-ASCII Ranch is an interactive ASCII pasture with grazing sheep, lambs, birds, and a sheepdog. Guide the dog with point-and-click movement and Q/W/E/R actions, or open `[*]` to adjust the flock and meadow controls.
+Inspired by [ASCII Pond](https://github.com/stqfdyr/ascii-pond).
+
+I've always wanted to be a sheep rancher, so I played around a little and this is the result. Head to [asciiranch.com](https://asciiranch.com) to try it.
