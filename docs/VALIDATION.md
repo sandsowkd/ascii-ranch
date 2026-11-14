@@ -2,7 +2,7 @@
 
 Verified November 13, 2026.
 
-- Production build passed: strict TypeScript and Vite.
+- Production build passed: strict TypeScript and Vite. Four focused desktop/mobile wildlife rendering checks also passed after filling mouse bodies with denser, slightly brighter gray glyphs.
 - 78 simulation/navigation/wildlife tests passed.
 - Prior full run: 51 desktop/mobile Chromium browser checks passed; one desktop touch-only case is intentionally skipped. After removing the fence tool, eight focused checks passed for its absence, dog movement/feeding, grass painting, settings and the recall gate.
 - Dog rendering checks cover 48 standing/running poses per device. Floating selection brackets above the coat are removed; visible paws remain underneath at all eight headings.
@@ -11,7 +11,7 @@ Verified November 13, 2026.
 - The 284 px menu contains independent sheep/lamb counters, Pause, Reset, Regrow, and a compact how-to-play guide. It has no title, close button, dog controls, or ability buttons. The settings icon, outside click, H, and Escape dismiss it; Q/W/E/R retain their keyboard actions.
 - Sheep move 25% faster under dog pressure and give sleeping dogs an 88 px buffer (scaled on small screens). Normal grazing and bark escape speeds are unchanged.
 - Fence building is disabled for now: F and Backspace have no construction actions, dragging creates no rail or preview, and the controls guide omits construction. The dog pen remains. Internal field-fence geometry and simulation tests are retained for possible future use.
-- Pen posts accept centered bird landings with both legs visible. Mice are 30% smaller, predominantly cool gray, with round ears, a tapered snout and a short pink tail. Gray silhouettes are checked at eight headings. At most two mice visit at once, with 26–40 seconds between arrivals. They run in from an edge; visit expiry starts an exit run and removes them only when fully offscreen.
+- Pen posts accept centered bird landings with both legs visible. Mice are 30% smaller, filled with dense, medium-weight cool-gray fur glyphs, with round ears, a tapered snout and a short pink tail. Gray silhouettes are checked at eight headings. At most two mice visit at once, with 26–40 seconds between arrivals. They run in from an edge; visit expiry starts an exit run and removes them only when fully offscreen.
 - Every third visitor is a hawk with articulated wings, a bent wrist, rounded secondaries and separate outer feathers. Deep wingbeats alternate with gliding. With exposed prey, it approaches a tangent and smoothly banks through a varied hunting arc of roughly half to two turns, with varying radius, before a curved descent and brief talon grab. Its position is integrated continuously. Catch is resolved once at the strike, with a 50/50 roll; mice beneath wool remain protected and hawks without exposed prey fly over. Flight reference: [Cornell Lab hawk identification](https://www.allaboutbirds.org/guide/Red-tailed_Hawk/id).
 - Fresh loads show only the ASCII settings button outside the canvas. Flock persistence, pause/reset, food placement, hover regrowth, touch feeding, bird rendering, animal overlap, and recall gate behavior remain covered.
 - Local samples: 60 FPS at 1440 × 900 and at emulated 412 × 839. Mobile uses Chromium device emulation.

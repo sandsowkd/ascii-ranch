@@ -51,8 +51,8 @@ export class Renderer {
       for (let g = 0; g < GLYPHS.length; g++) {
         const eye = family === 3 && GLYPHS[g] === 'O', outline = family === 3 && '/\\|-()'.includes(GLYPHS[g]);
         const timber = family === 7 && '-=|/\\'.includes(GLYPHS[g]);
-        const pinkTail = family === 12;
-        ctx.font = `${timber ? 700 : eye ? 500 : outline || pinkTail ? 600 : 400} ${this.ah * (eye ? 0.98 : outline || pinkTail ? 0.92 : timber ? 0.94 : 0.82)}px "Geist Mono", monospace`;
+        const pinkTail = family === 12, mouseFur = family === 13 && '#%'.includes(GLYPHS[g]);
+        ctx.font = `${timber ? 700 : eye || mouseFur ? 500 : outline || pinkTail ? 600 : 400} ${this.ah * (eye ? 0.98 : outline || pinkTail ? 0.92 : timber ? 0.94 : 0.82)}px "Geist Mono", monospace`;
         // Tiny vertical stems can have very little ink at 1× resolution. A
         // fractional stroke keeps the wood brown and legible in a single cell.
         if (timber || pinkTail) {
@@ -248,7 +248,7 @@ export class Renderer {
       const along = ox * dx + oy * dy, side = ox * sx + oy * sy;
       const body = ((along + 5) / 10) ** 2 + (side / 7.5) ** 2;
       const head = ((along - 7) / 9) ** 2 + (side / 6.5) ** 2;
-      if (body <= 1) this.put(x, y, body > 0.65 ? ':' : '#', 0.88, 13);
+      if (body <= 1) this.put(x, y, body > 0.72 ? '%' : '#', 0.94, 13);
       if (head <= 1) this.put(x, y, head > 0.55 ? lineGlyph(-side, along - 7) : '%', head > 0.55 ? 1 : 0.82, 13);
     }
     for (const side of [-1, 1]) {
