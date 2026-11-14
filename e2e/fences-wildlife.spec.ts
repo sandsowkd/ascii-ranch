@@ -3,44 +3,23 @@ import { test, expect, type Page } from '@playwright/test';
 const state = (page: Page): Promise<any> => page.evaluate(() => (window as any).__meadow.snapshot());
 test.beforeEach(async ({ page }) => { await page.goto('/?debug'); await page.evaluate(() => document.fonts.ready); });
 
-test('F keeps the fence tool active across drags, moves occupied sheep aside, and previews a thick continuous brown rail', async ({ page }, info) => {
+test('fence building is disabled while dog movement, feeding and the pen remain available', async ({ page }, info) => {
   await page.evaluate(() => { const a = (window as any).__meadow; a.world.reset(0, 0); a.world.toggleDog(); a.controller.setPaused(true); });
-  const before = await state(page), x = before.width * 0.42, y1 = before.height * 0.28, y2 = before.height * 0.6;
-  await page.evaluate(({ x, y }) => { const w = (window as any).__meadow.world; w.addSheep(); w.addLamb(); for (const [i, s] of w.animals.entries()) Object.assign(s, { x: x + i * 5, y: y + i * 55 }); }, { x, y: (y1 + y2) / 2 });
-  await page.locator('#settings-toggle').click(); await page.keyboard.press('f'); await expect(page.locator('#settings-panel')).toBeHidden(); expect((await state(page)).fenceMode).toBe(true);
-  await page.mouse.move(x, y1); await page.mouse.down(); await page.mouse.move(x, y2, { steps: 12 });
-  const draft = await state(page); expect(draft.fencePreview.valid).toBe(true); expect(draft.fences).toHaveLength(0);
-  const preview = await page.evaluate(({ x, y1, y2 }) => {
-    const a = (window as any).__meadow, p = a.world.pasture, rows = [];
-    for (let y = y1 + p.cellH * 2; y < y2 - p.cellH * 2; y += p.cellH) {
-      let brown = 0; for (let c = Math.floor(x / p.cellW) - 2; c <= Math.floor(x / p.cellW) + 2; c++) { const cell = a.renderer.cellAt((c + 0.5) * p.cellW, y); if (cell.family === 7 && cell.priority === 9) brown++; }
-      rows.push(brown);
-    }
-    return rows;
-  }, { x, y1, y2 });
-  for (const width of preview) expect(width).toBeGreaterThanOrEqual(2);
-  await page.screenshot({ path: `docs/${info.project.name}-fence-preview.png` });
-  expect(draft.dog.targetX).toBe(before.dog.targetX); expect(draft.dog.targetY).toBe(before.dog.targetY);
-  await page.mouse.up();
-  const built = await state(page); expect(built.fences).toHaveLength(1); expect(built.fencePreview).toBeNull(); expect(built.fenceMode).toBe(true);
-  for (const s of [...built.sheep, ...built.lambs]) expect(Math.abs(s.x - x)).toBeGreaterThan((49 * s.size + 5.5) * (before.width < 600 ? 0.79 : 1));
-  expect(built.fences[0].a.x).toBeCloseTo(built.fences[0].b.x); expect(built.fencePosts.length).toBeGreaterThan(before.fencePosts.length + 1);
-  const wood = await page.evaluate(({ x, y }) => (window as any).__meadow.renderer.cellAt(x, y), { x, y: (y1 + y2) / 2 });
-  expect([5, 7]).toContain(wood.family); expect(wood.priority).toBeGreaterThanOrEqual(2);
-  // A second fence requires another drag, not another F press.
-  const y3 = before.height * 0.24;
-  await page.mouse.move(before.width * 0.2, y3); await page.mouse.down(); await page.mouse.move(before.width * 0.7, y3, { steps: 8 }); await page.mouse.up();
-  expect((await state(page)).fences).toHaveLength(2);
-  const horizontal = await page.evaluate(({ x, y }) => (window as any).__meadow.renderer.cellAt(x, y), { x: before.width * 0.45, y: y3 });
-  expect(horizontal).toMatchObject({ glyph: '=', family: 7, priority: 2 });
-  await page.screenshot({ path: `docs/${info.project.name}-drawn-fence.png` });
-  await page.mouse.move(x + 55, y1); await page.mouse.down(); await page.mouse.move(x + 55, y2);
-  await page.keyboard.press('Escape'); await page.mouse.up(); expect((await state(page)).fences).toHaveLength(2); expect((await state(page)).fenceMode).toBe(false);
-  await page.keyboard.press('Backspace'); expect((await state(page)).fences).toHaveLength(1);
-  await page.keyboard.press('Backspace'); expect((await state(page)).fences).toHaveLength(0);
-  await page.keyboard.press('p'); await page.mouse.click(before.width * 0.3, before.height * 0.4, { button: 'right' });
-  expect((await state(page)).feed).toHaveLength(1); expect((await state(page)).dog.atHome).toBe(true);
-  await page.mouse.click(before.width * 0.3, before.height * 0.4); expect((await state(page)).dog.atHome).toBe(false);
+  await page.locator('#settings-toggle').click();
+  await expect(page.locator('#settings-panel')).not.toContainText(/fence|backspace/i);
+  await page.keyboard.press('f'); await expect(page.locator('#settings-panel')).toBeVisible();
+  await page.screenshot({ path: `docs/${info.project.name}-no-fence-tool.png` });
+  await page.locator('#settings-toggle').click();
+  const before = await state(page), x = before.width * 0.35, y1 = before.height * 0.28, y2 = before.height * 0.5;
+  await page.keyboard.press('f'); await page.mouse.move(x, y1); await page.mouse.down(); await page.mouse.move(x, y2, { steps: 8 });
+  expect((await state(page)).fencePreview).toBeNull(); await page.mouse.up();
+  const after = await state(page); expect(after.fences).toHaveLength(0); expect(after.fencePosts.length).toBe(before.fencePosts.length); expect(after.dog.atHome).toBe(true);
+  await expect(page.locator('#meadow')).not.toHaveClass(/fence-mode/);
+  await page.keyboard.press('p'); await page.mouse.click(x, y2);
+  expect((await state(page)).dog.atHome).toBe(false);
+  await page.mouse.click(x, y1, { button: 'right' }); expect((await state(page)).feed).toHaveLength(1);
+  await page.keyboard.press('Space'); await page.keyboard.press('f'); expect((await state(page)).regrowMode).toBe(true);
+  await page.keyboard.press('Escape');
 });
 
 test('mice are compact gray silhouettes at every heading and the hawk visibly folds and spreads its wings', async ({ page }, info) => {
