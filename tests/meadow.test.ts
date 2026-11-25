@@ -293,7 +293,9 @@ describe('a controllable sheepdog', () => {
     a.toggleDog(); b.toggleDog(); Object.assign(a.dog!, { x: 300, y: 400 }); Object.assign(b.dog!, { x: 300, y: 400 });
     a.sendDog(1500, 400); b.sendDog(1500, 400); a.cast('e');
     advance(a, 0.5); advance(b, 0.5);
-    expect(Math.hypot(a.dog!.x - 1500, a.dog!.y - 400)).toBeLessThan(Math.hypot(b.dog!.x - 1500, b.dog!.y - 400) - 45);
+    const sprintLead = (SPEEDS.dogSprint - SPEEDS.dogWalk) * 0.4;
+    expect(Math.hypot(a.dog!.x - 1500, a.dog!.y - 400)).toBeLessThan(Math.hypot(b.dog!.x - 1500, b.dog!.y - 400) - sprintLead);
+    expect(Math.hypot(a.dog!.x - 300, a.dog!.y - 400)).toBeLessThanOrEqual(SPEEDS.dogSprint * 0.5 + 0.001);
   });
   it('W encloses sheep on every pasture edge and follows a complete outside lap', () => {
     const w = new World(1200, 900, 4), b = w.bounds;
@@ -318,7 +320,10 @@ describe('a controllable sheepdog', () => {
     w.cast('r'); expect(w.dog!.recalling).toBe(true); expect(w.dog!.targetX).toBe(w.home.doorX);
     advance(w, 12); expect(w.dog!.atHome).toBe(true); expect(w.dog!.x).toBeCloseTo(w.home.doorX);
     w.cast('r', { x: 900, y: 500 }); expect(w.dog!.launching).toBe(true); expect(w.dog!.targetX).toBe(900);
-    advance(w, 0.2); expect(Math.hypot(w.dog!.vx, w.dog!.vy)).toBeGreaterThan(SPEEDS.dogWalk * 2);
+    advance(w, 0.2);
+    const releaseSpeed = Math.hypot(w.dog!.vx, w.dog!.vy);
+    expect(releaseSpeed).toBeGreaterThan(SPEEDS.dogRelease * 0.9);
+    expect(releaseSpeed).toBeLessThanOrEqual(SPEEDS.dogRelease + 0.001);
     expect(w.dog!.recallReady).toBe(false);
   });
   it('an idle dog sleeps after seven seconds and wakes on a command or ability', () => {

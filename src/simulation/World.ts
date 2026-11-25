@@ -20,7 +20,7 @@ export const ABILITIES: Record<Ability, { name: string; duration: number }> = {
   q: { name: 'Bark', duration: 2.4 }, w: { name: 'Come By', duration: 0 },
   e: { name: 'Sprint', duration: 1.25 }, r: { name: 'Recall / Release', duration: 0 },
 };
-export const SPEEDS = { sheepWalk: 11, sheepFood: 20, sheepChased: 32.5, sheepPanic: 46, dogWalk: 132, dogOrbit: 210, dogSprint: 248, dogRelease: 270 };
+export const SPEEDS = { sheepWalk: 11, sheepFood: 20, sheepChased: 32.5, sheepPanic: 46, dogWalk: 162.4, dogOrbit: 210, dogSprint: 248, dogRelease: 270 };
 export interface Dog {
   x: number; y: number; vx: number; vy: number; heading: number; targetX: number; targetY: number;
   arrived: boolean; sprint: number; orbit: 'w' | null; orbitEntering: boolean; orbitPath: Point[]; orbitProgress: number; orbitLast?: Point; orbitUpdatedAt: number;
